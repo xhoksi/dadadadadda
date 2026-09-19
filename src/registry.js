@@ -71,9 +71,11 @@ export const FEATURES = [
   },
   {
     key: "daily_draw", name: "The draw", category: "scheduled", tier: TIERS.lifetime,
-    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: true,
+    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: true, widget: false,
     limits: LIMITS.daily_draw,
-    description: "A deck of up to 12 lines; each browser keeps one card for the owner-local day.",
+    description: "A deck of up to 12 lines; each browser keeps one card for the owner-local day."+
+    " Changes to an active deck apply at the next owner-local midnight and can be cancelled."+ 
+    " Selection is made entirely in the visitor's browser from a local random seed.",
     fields: {
       cards: field({ type: "array", default: [], items: "string", maxItems: 12, max: 160 }),
       style: field({ type: "enum", default: "handwritten", values: ["handwritten", "type"] }),

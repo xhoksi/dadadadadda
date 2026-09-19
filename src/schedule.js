@@ -10,6 +10,14 @@ export function toHHMM(minutes) {
   return `${h}:${m}`;
 }
 
+// Owner-local calendar date as YYYY-MM-DD (used for day-scoped selections).
+export function localDate(timezone, now) {
+  const d = now instanceof Date ? now : new Date(now);
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d);
+  const read = (t) => parts.find((p) => p.type === t).value;
+  return `${read("year")}-${read("month")}-${read("day")}`;
+}
+
 // UTC offset of an instant as signed minutes east of UTC (e.g. +120 for CEST).
 export function localOffsetMinutes(timezone, epochMs) {
   const off = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "longOffset" }).format(new Date(epochMs));

@@ -9,6 +9,8 @@ const el = {
   featureLabels: document.getElementById("feature-labels"),
   foot: document.getElementById("foot"),
   moonWrap: document.getElementById("moon-wrap"),
+  drawCard: document.getElementById("draw-card"),
+  drawLine: document.getElementById("draw-line"),
 };
 
 const faces = {
@@ -40,6 +42,49 @@ const FEATURE_ITEM_LABEL = {
   chalkboard: "A little drawing",
   tally: "Vote",
 };
+
+function drawIndex(seed, pageId, day, len) {
+  const s = `${seed}|${pageId}|${day}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return (h >>> 0) % len;
+}
+
+let memSeed = null;
+
+function renderDraw(data) {
+  const d = data.draw;
+  const enabled = data.features.some((f) => f.key === "daily_draw");
+  if (!enabled || !d || !d.cards || d.cards.length === 0) {
+    el.drawCard.hidden = true;
+    return;
+  }
+  let seed = null;
+  let stored = null;
+  try {
+    stored = JSON.parse(localStorage.getItem(`misa_draw:${d.pageId}:seed`) || "null");
+  } catch {
+    stored = null;
+  }
+  if (stored && stored.seed && stored.day === d.day) {
+    seed = stored.seed;
+  } else {
+    seed = Math.floor(Date.now()).toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    try {
+      localStorage.setItem(`misa_draw:${d.pageId}:seed`, JSON.stringify({ seed, day: d.day }));
+    } catch {
+      memSeed = seed;
+    }
+  }
+  if (!seed) seed = memSeed;
+  const idx = drawIndex(seed, d.pageId, d.day, d.cards.length);
+  el.drawCard.hidden = false;
+  el.drawLine.textContent = d.cards[idx];
+  el.drawLine.classList.toggle("hand", d.style !== "type");
+}
 
 function renderSymbol(data) {
   el.moonWrap.textContent = "";
@@ -122,6 +167,7 @@ async function load() {
     }
 
     renderSymbol(data);
+    renderDraw(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();

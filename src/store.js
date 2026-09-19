@@ -63,6 +63,7 @@ function seed() {
     grants: [],
     askAnything: [],
     placements: {},
+    drawSchedules: {},
     audit: [
       {
         id: newId("audit"),
@@ -86,6 +87,7 @@ function load() {
     store = JSON.parse(raw);
     if (!Array.isArray(store.askAnything)) store.askAnything = [];
     if (!store.placements || typeof store.placements !== "object") store.placements = {};
+    if (!store.drawSchedules || typeof store.drawSchedules !== "object") store.drawSchedules = {};
   } catch {
     store = seed();
     persist();

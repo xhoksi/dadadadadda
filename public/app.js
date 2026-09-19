@@ -11,6 +11,9 @@ const askManager = document.getElementById("ask-manager");
 const blocksCard = document.getElementById("blocks-card");
 const blocksCardSub = document.getElementById("blocks-card-sub");
 const blocksManager = document.getElementById("blocks-manager");
+const drawCard = document.getElementById("draw-card");
+const drawCardSub = document.getElementById("draw-card-sub");
+const drawManager = document.getElementById("draw-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -215,6 +218,10 @@ async function loadFeatures() {
   const hasBlocks = featureState.has("other_side");
   blocksCard.hidden = !hasBlocks;
   if (hasBlocks) loadBlocks();
+
+  const hasDraw = featureState.has("daily_draw");
+  drawCard.hidden = !hasDraw;
+  if (hasDraw) loadDraw();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -691,6 +698,65 @@ blocksManager.addEventListener("change", (e) => {
   const cb = e.target.closest("input[data-act='night']");
   if (!cb) return;
   toggleNightOnly(cb.dataset.rid, cb.checked);
+});
+
+// ---------- draw manager ----------
+function deckList(title, deck) {
+  const box = document.createElement("div");
+  const h = document.createElement("h3");
+  h.className = "ask-group";
+  h.textContent = title;
+  box.appendChild(h);
+  if (!deck || !deck.cards || deck.cards.length === 0) {
+    const p = document.createElement("p");
+    p.className = "ask-none";
+    p.textContent = deck ? "Empty deck." : "No deck yet.";
+    box.appendChild(p);
+    return box;
+  }
+  const ol = document.createElement("ol");
+  ol.className = "draw-deck";
+  deck.cards.forEach((line) => {
+    const li = document.createElement("li");
+    li.textContent = line;
+    ol.appendChild(li);
+  });
+  box.appendChild(ol);
+  return box;
+}
+
+async function loadDraw() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/daily_draw`);
+  if (!res.ok) {
+    drawCardSub.textContent = data.message || "Could not load the draw.";
+    return;
+  }
+  const st = data.state || {};
+  const pending = st.pending;
+  drawManager.textContent = "";
+  drawCardSub.textContent =
+    `The active deck for ${st.localDate || "today"} has ${st.active ? st.active.count : 0} card(s). ` +
+    (pending ? `A new ${pending.count}-card deck is scheduled from ${pending.appliesOn} (owner-local midnight). ` : "No scheduled revision. ") +
+    "Each visitor's browser picks one card for the owner-local day from a random local seed; nothing is assigned on the server.";
+  drawManager.appendChild(deckList(`Active deck (${st.active ? st.active.style : "-"})`, st.active));
+  if (pending) {
+    drawManager.appendChild(deckList(`Scheduled from ${pending.appliesOn}`, pending));
+    const cancel = askCardButton("Cancel scheduled revision", "draw-cancel", "");
+    cancel.style.marginTop = "10px";
+    drawManager.appendChild(cancel);
+  } else {
+    drawManager.appendChild(deckList("Scheduled", null));
+  }
+}
+
+drawManager.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act='draw-cancel']");
+  if (!btn) return;
+  api(`/api/me/pages/${currentPage.id}/features/daily_draw/cancel`, { method: "POST", body: {} })
+    .then(({ res, data }) => {
+      drawCardSub.textContent = res.ok ? (data.message || "Cancelled.") : (data.message || "Could not cancel.");
+      if (res.ok) loadDraw();
+    });
 });
 
 async function loadProfile() {

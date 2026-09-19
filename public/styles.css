@@ -575,6 +575,18 @@ a.preview-anchor:hover {
   white-space: nowrap;
 }
 
+.draw-deck {
+  list-style: decimal inside;
+  margin: 8px 0 16px;
+  padding: 0;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.draw-card {
+  margin-top: 24px;
+}
+
 .blocks-card {
   margin-top: 24px;
 }

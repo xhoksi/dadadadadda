@@ -20,6 +20,7 @@ import {
   destroySession,
 } from "./auth.js";
 import * as ask from "./content/ask_anything.js";
+import * as draw from "./content/daily_draw.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -176,6 +177,7 @@ function publicFeatures(store, page, now) {
     features: result,
     card: flipCard(store, page, now),
     night: nightState(store, page, now),
+    draw: draw.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -253,7 +255,7 @@ export function createApp() {
       config: { draft: pf.draft, published: pf.published },
       fields: def.fields,
       version: pf.version,
-      state: def.key === "night_shift" ? nightState(store, page, now()) : null,
+      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : null,
     });
   });
 
@@ -324,6 +326,22 @@ export function createApp() {
       return res.status(422).json({ message: "Draft does not validate. Nothing was published.", errors: result.errors });
     }
     const before = structuredClone(pf);
+    if (def.key === "daily_draw") {
+      const drew = draw.publishDeck(store, page, result.value, now());
+      if (!drew.ok) return res.status(drew.status).json(drew);
+      pf.draft = null;
+      reportAudit(store, {
+        actor: req.user.id,
+        scope: "page",
+        feature: def.key,
+        action: "owner.publish_draw",
+        before: { version: before.version },
+        after: { applied: drew.applied, version: pf.version },
+        reason: (req.body && req.body.reason) || "",
+      });
+      saveStore();
+      return res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: drew.message });
+    }
     pf.published = structuredClone(pf.draft);
     pf.version += 1;
     pf.updatedAt = now();
@@ -338,6 +356,26 @@ export function createApp() {
     });
     saveStore();
     res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: "Published. Drafts never enter public output; published state is now live content." });
+  });
+
+  app.post("/api/me/pages/:id/features/daily_draw/cancel", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const result = draw.cancelPending(store, page);
+    if (!result.ok) return res.status(result.status).json(result);
+    reportAudit(store, {
+      actor: req.user.id,
+      scope: "page",
+      feature: "daily_draw",
+      action: "owner.cancel_revision",
+      before: {},
+      after: {},
+      reason: (req.body && req.body.reason) || "",
+    });
+    saveStore();
+    res.json({ ...result, state: draw.scheduleState(store, page, now()) });
   });
 
   app.patch("/api/me/pages/:id/profile", requireAuth, (req, res) => {
