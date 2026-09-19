@@ -5,6 +5,9 @@ const featureList = document.getElementById("feature-list");
 const demoUser = document.getElementById("demo-user");
 const loginButton = document.getElementById("login-button");
 const loginStatus = document.getElementById("login-status");
+const askCard = document.getElementById("ask-card");
+const askCardSub = document.getElementById("ask-card-sub");
+const askManager = document.getElementById("ask-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -31,6 +34,7 @@ let token = localStorage.getItem("misa.token") || null;
 let user = null;
 let currentPage = null;
 let featureState = new Map();
+let askState = { box: null };
 
 const TIER_LABEL = {
   free: "Free",
@@ -176,13 +180,17 @@ function renderFeatures() {
         <div class="feature-title">${escapeHtml(f.name)}${badge}<span class="tier">${TIER_LABEL[f.tier] || f.tier}</span></div>
         <div class="feature-state">${f.effectiveEnabled ? "On" : "Off"}${escapeHtml(extra)}</div>
       </div>
-      <button class="switch ${f.requestedEnabled ? "on" : ""}" role="switch" aria-checked="${f.requestedEnabled}" data-key="${escapeHtml(key)}" ${f.canEdit ? "" : "disabled title=\"Not editable\""}>${f.requestedEnabled ? "On" : "Off"}</button>`;
+      <div class="feature-controls">
+        <button class="switch ${f.requestedEnabled ? "on" : ""}" role="switch" aria-checked="${f.requestedEnabled}" data-key="${escapeHtml(key)}" ${f.canEdit ? "" : "disabled title=\"Not editable\""}>${f.requestedEnabled ? "On" : "Off"}</button>
+        <button type="button" class="config-btn" data-config-key="${escapeHtml(key)}">Edit settings</button>
+      </div>`;
 
     const toggle = card.querySelector(".switch");
     toggle.addEventListener("click", () => {
       const next = !f.requestedEnabled;
       doToggleFeature(key, next, toggle, f);
     });
+    card.querySelector(".config-btn").addEventListener("click", () => openConfigEditor(key));
     featureList.appendChild(card);
   }
 }
@@ -195,6 +203,10 @@ async function loadFeatures() {
   }
   featureState = new Map(data.features.map((f) => [f.key, f]));
   renderFeatures();
+
+  const hasAsk = featureState.has("ask_anything");
+  askCard.hidden = !hasAsk;
+  if (hasAsk) loadAsk();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -214,6 +226,313 @@ async function doToggleFeature(key, next, button, f) {
   renderFeatures();
   setLoginStatus(data.message || "Saved.", "success");
 }
+
+// ---------- feature config editor (registry-driven) ----------
+let configDetail = {};
+
+function fieldControl(desc, name) {
+  const wrap = document.createElement("div");
+  wrap.className = "cfg-field";
+  const label = document.createElement("label");
+  label.className = "cfg-label";
+  const text = document.createElement("span");
+  text.textContent = desc.label || name;
+  wrap.appendChild(label);
+  if (desc.type === "boolean") {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    label.appendChild(box);
+    label.appendChild(text);
+  } else {
+    label.appendChild(text);
+    let control;
+    if (desc.type === "enum") {
+      control = document.createElement("select");
+      for (const v of desc.values) {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        control.appendChild(opt);
+      }
+    } else if (desc.type === "array") {
+      control = document.createElement("textarea");
+      control.rows = 3;
+    } else if (desc.type === "string") {
+      control = (desc.max || 120) > 120 ? document.createElement("textarea") : document.createElement("input");
+      control.type = "text";
+      if (desc.max) control.maxLength = desc.max;
+    } else if (desc.type === "number") {
+      control = document.createElement("input");
+      control.type = "number";
+      if (desc.min !== undefined) control.min = desc.min;
+      if (desc.max !== undefined) control.max = desc.max;
+    }
+    control.className = "cfg-input";
+    wrap.appendChild(control);
+  }
+  return { wrap, desc, input: desc.type === "boolean" ? wrap.querySelector("input") : wrap.querySelector(".cfg-input") };
+}
+
+function setConfigValue(control, desc, value) {
+  if (value === undefined || value === null) value = desc.default;
+  if (desc.type === "boolean") control.checked = !!value;
+  else if (desc.type === "number") control.value = value == null ? "" : String(value);
+  else if (desc.type === "array") control.value = Array.isArray(value) ? value.join("\n") : "";
+  else control.value = String(value ?? "");
+}
+
+function collectConfig(controls) {
+  const out = {};
+  for (const [name, entry] of Object.entries(controls)) {
+    const { control, desc } = entry;
+    if (desc.type === "boolean") out[name] = control.checked;
+    else if (desc.type === "number") out[name] = control.value === "" ? null : Number(control.value);
+    else if (desc.type === "array") out[name] = control.value.split("\n").map((s) => s.trim()).filter(Boolean);
+    else out[name] = control.value;
+  }
+  return out;
+}
+
+async function openConfigEditor(key) {
+  const card = document.getElementById(`feature-card-${key}`);
+  let panel = card.querySelector(".config-panel");
+  if (panel) {
+    panel.hidden = !panel.hidden;
+    return;
+  }
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/${key}`);
+  if (!res.ok) {
+    setLoginStatus(data.message || "Could not load feature settings.", "error");
+    return;
+  }
+  configDetail[key] = data;
+  panel = document.createElement("div");
+  panel.className = "config-panel";
+  const detail = data;
+  const current = detail.config.draft || detail.config.published || {};
+  const controls = {};
+  for (const [name, desc] of Object.entries(detail.fields)) {
+    const entry = fieldControl(desc, name);
+    setConfigValue(entry.input, desc, current[name]);
+    panel.appendChild(entry.wrap);
+    controls[name] = entry;
+  }
+  const hint = document.createElement("p");
+  hint.className = "cfg-hint";
+  const draftState = detail.config.draft ? "(draft not published)" : detail.config.published ? "(live)" : "(not configured)";
+  hint.textContent = `Save keeps a private draft; Publish makes it live config. Current: ${draftState}.`;
+  panel.appendChild(hint);
+
+  const actions = document.createElement("div");
+  actions.className = "cfg-actions";
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.textContent = "Save draft";
+  const pubBtn = document.createElement("button");
+  pubBtn.type = "button";
+  pubBtn.textContent = "Publish";
+  const cfgStatus = document.createElement("p");
+  cfgStatus.className = "status";
+  actions.appendChild(saveBtn);
+  actions.appendChild(pubBtn);
+  actions.appendChild(cfgStatus);
+  panel.appendChild(actions);
+
+  async function refresh(extra) {
+    const { res: r2, data: d2 } = await api(`/api/me/pages/${currentPage.id}/features/${key}`);
+    if (r2.ok) {
+      configDetail[key] = d2;
+      Object.assign(detail, d2);
+    }
+    setStatus(cfgStatus, extra || "Saved.", "success");
+    loadFeatures();
+  }
+
+  saveBtn.addEventListener("click", async () => {
+    const body = collectConfig(controls);
+    for (const k of Object.keys(body)) {
+      if (body[k] === null) delete body[k];
+    }
+    const r = await api(`/api/me/pages/${currentPage.id}/features/${key}`, {
+      method: "PATCH",
+      body: { config: body, expectedVersion: detail.version },
+    });
+    setStatus(cfgStatus, r.data.message || (r.res.ok ? "Draft saved." : "Save failed."), r.res.ok ? "success" : "error");
+    if (r.res.ok) refresh();
+  });
+
+  pubBtn.addEventListener("click", async () => {
+    const body = collectConfig(controls);
+    for (const k of Object.keys(body)) {
+      if (body[k] === null) delete body[k];
+    }
+    const saved = await api(`/api/me/pages/${currentPage.id}/features/${key}`, {
+      method: "PATCH",
+      body: { config: body, expectedVersion: detail.version },
+    });
+    if (!saved.res.ok) {
+      setStatus(cfgStatus, saved.data.message || "Publish failed.", "error");
+      return;
+    }
+    const r = await api(`/api/me/pages/${currentPage.id}/features/${key}/publish`, {
+      method: "POST",
+      body: { expectedVersion: saved.data.version },
+    });
+    setStatus(cfgStatus, r.data.message || (r.res.ok ? "Published." : "Publish failed."), r.res.ok ? "success" : "error");
+    if (r.res.ok) refresh();
+  });
+
+  card.appendChild(panel);
+}
+
+// ---------- ask me anything inbox ----------
+function iaTime(iso) {
+  return new Date(iso).toLocaleString();
+}
+
+function askCardButton(label, act, rid, version, extra) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = label;
+  btn.dataset.act = act;
+  btn.dataset.rid = rid;
+  if (version !== undefined) btn.dataset.version = version;
+  btn.className = "ask-btn";
+  if (extra) btn.className += ` ${extra}`;
+  return btn;
+}
+
+function askRow(rec, kind) {
+  const row = document.createElement("div");
+  row.className = "ask-row";
+  const head = document.createElement("div");
+  head.className = "ask-row-head";
+  const q = document.createElement("span");
+  q.className = "ask-row-q";
+  q.textContent = rec.question;
+  const t = document.createElement("span");
+  t.className = "ask-row-time";
+  t.textContent = `asked ${iaTime(rec.submittedAt)}${rec.contact ? " · contact: " + rec.contact : ""}`;
+  head.appendChild(q);
+  head.appendChild(t);
+  row.appendChild(head);
+
+  if (kind === "published") {
+    const a = document.createElement("p");
+    a.className = "ask-row-a";
+    a.textContent = rec.answer;
+    row.appendChild(a);
+    const ops = document.createElement("div");
+    ops.className = "ask-ops";
+    ops.appendChild(askCardButton("Up", "move-up", rec.id));
+    ops.appendChild(askCardButton("Down", "move-down", rec.id));
+    ops.appendChild(askCardButton("Unpublish", "unpublish", rec.id, rec.version));
+    ops.appendChild(askCardButton("Delete", "delete", rec.id));
+    row.appendChild(ops);
+    return row;
+  }
+
+  const ta = document.createElement("textarea");
+  ta.className = "ask-answer-input";
+  ta.maxLength = 2000;
+  ta.placeholder = "Write an answer draft…";
+  if (kind === "draft") ta.value = rec.answer || "";
+  row.appendChild(ta);
+  const ops = document.createElement("div");
+  ops.className = "ask-ops";
+  ops.appendChild(askCardButton("Save draft", "draft", rec.id, rec.version));
+  ops.appendChild(askCardButton("Answer & publish", "publish", rec.id, rec.version));
+  if (kind === "pending") ops.appendChild(askCardButton("Reject", "reject", rec.id, rec.version));
+  if (kind === "rejected") ops.appendChild(askCardButton("Back to drafts", "restore", rec.id, rec.version));
+  ops.appendChild(askCardButton("Delete", "delete", rec.id));
+  row.appendChild(ops);
+  return row;
+}
+
+function renderAskManager(box) {
+  askManager.textContent = "";
+  askCardSub.textContent =
+    `Inbox on /${currentPage.slug}. ${box.counts.pending} pending, ${box.counts.draft} drafts, ${box.counts.published} published, ${box.counts.rejected} rejected.`;
+  for (const [type, label] of [["pending", "Pending"], ["draft", "Answer drafts"], ["published", "Published"], ["rejected", "Rejected"]]) {
+    const items = box.statuses[type];
+    const h = document.createElement("h3");
+    h.className = "ask-group";
+    h.textContent = `${label} (${items.length})`;
+    askManager.appendChild(h);
+    if (items.length === 0) {
+      const none = document.createElement("p");
+      none.className = "ask-none";
+      none.textContent = "None.";
+      askManager.appendChild(none);
+      continue;
+    }
+    for (const rec of items) askManager.appendChild(askRow(rec, type));
+  }
+  const refresh = document.createElement("button");
+  refresh.type = "button";
+  refresh.className = "ask-btn";
+  refresh.textContent = "Refresh";
+  refresh.dataset.act = "refresh";
+  askManager.appendChild(refresh);
+}
+
+async function loadAsk() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/ask_anything/inbox`);
+  if (!res.ok) {
+    askCardSub.textContent = "Could not load the inbox.";
+    return;
+  }
+  askState.box = data;
+  renderAskManager(data);
+}
+
+async function postAskAction(act, btn) {
+  const rid = btn.dataset.rid;
+  const version = btn.dataset.version ? Number(btn.dataset.version) : undefined;
+  const row = btn.closest(".ask-row");
+  const answer = row ? row.querySelector(".ask-answer-input")?.value : "";
+  let r;
+  if (act === "draft") r = await api(`/api/me/pages/${currentPage.id}/features/ask_anything/records/${rid}/draft`, { method: "POST", body: { answer, expectedVersion: version } });
+  else if (act === "publish") r = await api(`/api/me/pages/${currentPage.id}/features/ask_anything/records/${rid}/publish`, { method: "POST", body: { answer, expectedVersion: version } });
+  else if (act === "unpublish") r = await api(`/api/me/pages/${currentPage.id}/features/ask_anything/records/${rid}/unpublish`, { method: "POST", body: { expectedVersion: version } });
+  else if (act === "reject") r = await api(`/api/me/pages/${currentPage.id}/features/ask_anything/records/${rid}/reject`, { method: "POST", body: { expectedVersion: version } });
+  else if (act === "restore") r = await api(`/api/me/pages/${currentPage.id}/features/ask_anything/records/${rid}/restore`, { method: "POST", body: { expectedVersion: version } });
+  else if (act === "delete") r = await api(`/api/me/pages/${currentPage.id}/features/ask_anything/records/${rid}`, { method: "DELETE" });
+
+  if (!r.res.ok) {
+    askCardSub.textContent = r.data.message || "Action failed.";
+    return;
+  }
+  if (act !== "move-up" && act !== "move-down") {
+    askCardSub.textContent = r.data.message || "Done.";
+    await loadAsk();
+  }
+}
+
+function movePublished(btn, delta) {
+  if (!askState.box) return;
+  const pub = askState.box.statuses.published;
+  const rid = btn.dataset.rid;
+  const idx = pub.findIndex((r) => r.id === rid);
+  const swap = idx + delta;
+  if (idx === -1 || swap < 0 || swap >= pub.length) return;
+  const ids = pub.map((r) => r.id);
+  [ids[idx], ids[swap]] = [ids[swap], ids[idx]];
+  api(`/api/me/pages/${currentPage.id}/features/ask_anything/reorder`, { method: "POST", body: { order: ids } }).then(({ res, data }) => {
+    askCardSub.textContent = data.message || (res.ok ? "Order updated." : "Reorder failed.");
+    if (res.ok) loadAsk();
+  });
+}
+
+askManager.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === "refresh") loadAsk();
+  else if (act === "move-up") movePublished(btn, -1);
+  else if (act === "move-down") movePublished(btn, 1);
+  else postAskAction(act, btn);
+});
 
 async function loadProfile() {
   if (!currentPage) return;

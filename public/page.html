@@ -19,6 +19,17 @@
         <h2 class="h2">On this page</h2>
         <ul id="feature-labels" class="feature-labels"></ul>
       </section>
+      <section class="m-card" id="ask-anything" aria-label="Ask me anything" hidden>
+        <h2 class="h2">Ask me anything</h2>
+        <p id="ask-prompt" class="ask-prompt"></p>
+        <div id="ask-published"></div>
+        <form id="ask-form">
+          <textarea id="ask-question" rows="4" placeholder="Write a question…" aria-label="Your question"></textarea>
+          <input id="ask-contact" type="text" maxlength="200" placeholder="Contact (optional)" aria-label="Optional contact" />
+          <p id="ask-status" class="ask-status" hidden></p>
+          <button type="submit" id="ask-submit">Send</button>
+        </form>
+      </section>
       <p class="foot" id="foot"></p>
     </main>
     <script src="/page.js"></script>

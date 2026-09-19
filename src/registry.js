@@ -33,6 +33,7 @@ export const FEATURES = [
     fields: {
       acceptNew: field({ type: "boolean", default: true, required: true }),
       prompt: field({ type: "string", default: "Ask me anything", max: 200 }),
+      lengthCap: field({ type: "number", default: 500, min: 1, max: 500 }),
       anonymousLabel: field({ type: "boolean", default: false }),
       handwriting: field({ type: "enum", default: "handwritten", values: ["handwritten", "type"] }),
     },

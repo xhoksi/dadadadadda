@@ -394,6 +394,161 @@ a.preview-anchor:hover {
   outline-offset: 2px;
 }
 
+.feature-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.config-btn {
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.config-panel {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: grid;
+  gap: 10px;
+}
+
+.cfg-field {
+  display: grid;
+  gap: 4px;
+}
+
+.cfg-label {
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cfg-input {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.cfg-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.cfg-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cfg-actions button {
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.cfg-actions button:last-child {
+  display: inline-flex;
+}
+
+/* ---------- ask me anything inbox ---------- */
+
+.ask-card {
+  margin-top: 24px;
+}
+
+.ask-group {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.ask-row {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.ask-row-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ask-row-q {
+  font-weight: 600;
+}
+
+.ask-row-time {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ask-row-a {
+  margin: 8px 0 0;
+  white-space: pre-line;
+  color: #3a3844;
+}
+
+.ask-answer-input {
+  width: 100%;
+  margin-top: 10px;
+  min-height: 64px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+.ask-ops {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.ask-btn {
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ask-btn:hover {
+  border-color: var(--accent);
+}
+
 /* ---------- admin ---------- */
 
 .admin-body {

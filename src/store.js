@@ -61,6 +61,7 @@ function seed() {
     features,
     pageFeatures,
     grants: [],
+    askAnything: [],
     audit: [
       {
         id: newId("audit"),
@@ -82,6 +83,7 @@ function load() {
   try {
     const raw = fs.readFileSync(dataFile, "utf8");
     store = JSON.parse(raw);
+    if (!Array.isArray(store.askAnything)) store.askAnything = [];
   } catch {
     store = seed();
     persist();

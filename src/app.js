@@ -19,6 +19,7 @@ import {
   loginByHandle,
   destroySession,
 } from "./auth.js";
+import * as ask from "./content/ask_anything.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -240,6 +241,7 @@ export function createApp() {
     res.json({
       ...featureCard(store, page.id, def.key, now()),
       config: { draft: pf.draft, published: pf.published },
+      fields: def.fields,
       version: pf.version,
     });
   });
@@ -353,6 +355,91 @@ export function createApp() {
     res.json(preview);
   });
 
+  // ---------- owner: ask me anything content ----------
+  function ownerAskCtx(req, res) {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) {
+      res.status(404).json({ message: "Page not found." });
+      return null;
+    }
+    if (!isOwnerOrAdmin(req.user, page)) {
+      res.status(403).json({ message: "Not your page." });
+      return null;
+    }
+    return { store, page };
+  }
+
+  app.get("/api/me/pages/:id/features/ask_anything/inbox", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    res.json({ feature: "ask_anything", pageId: ctx.page.id, ...ask.inbox(ctx.store, ctx.page.id) });
+  });
+
+  app.post("/api/me/pages/:id/features/ask_anything/records/:recordId/draft", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    const result = ask.saveDraft(ctx.store, ctx.page, req.params.recordId, req.body || {}, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
+  app.post("/api/me/pages/:id/features/ask_anything/records/:recordId/publish", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    const result = ask.publishAnswer(ctx.store, ctx.page, req.params.recordId, req.body || {}, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
+  app.post("/api/me/pages/:id/features/ask_anything/records/:recordId/unpublish", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    const result = ask.unpublish(ctx.store, ctx.page, req.params.recordId, req.body || {}, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
+  app.post("/api/me/pages/:id/features/ask_anything/records/:recordId/reject", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    const result = ask.reject(ctx.store, ctx.page, req.params.recordId, req.body || {}, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
+  app.post("/api/me/pages/:id/features/ask_anything/records/:recordId/restore", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    const result = ask.restoreDraft(ctx.store, ctx.page, req.params.recordId, req.body || {}, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
+  app.delete("/api/me/pages/:id/features/ask_anything/records/:recordId", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    const result = ask.remove(ctx.store, ctx.page, req.params.recordId, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
+  app.post("/api/me/pages/:id/features/ask_anything/reorder", requireAuth, (req, res) => {
+    const ctx = ownerAskCtx(req, res);
+    if (!ctx) return;
+    const order = req.body && req.body.order;
+    const result = ask.reorder(ctx.store, ctx.page, order, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
   // ---------- public ----------
   app.get("/api/pages/:slug/features", (req, res) => {
     const store = getStore();
@@ -366,6 +453,27 @@ export function createApp() {
     const page = pageBySlug(store, req.params.slug);
     if (!page) return res.status(404).json({ message: "Page not found." });
     res.json(publicFeatures(store, page, now()));
+  });
+
+  // ---------- public: ask me anything ----------
+  app.get("/api/pages/:slug/ask", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!ask.isExposed(store, page, now())) return res.status(404).json({ message: "Not available." });
+    res.json({ pageId: page.id, ...ask.publicView(store, page, now()) });
+  });
+
+  app.post("/api/pages/:slug/ask", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const forwarded = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim();
+    const ip = forwarded || req.socket?.remoteAddress || "local";
+    const result = ask.submitQuestion(store, page, req.body, ip, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.status(201).json({ id: result.record.id, submittedAt: result.record.submittedAt, note: result.note });
   });
 
   // ---------- admin: feature catalogue ----------
@@ -580,6 +688,22 @@ export function createApp() {
     res.json({ grant, message: kind === "grant" ? "Entitlement grant applied." : "Restriction applied. It cannot bypass a hard global disable or suspension." });
   });
 
+  // ---------- admin: public content moderation ----------
+  app.get("/api/admin/features/ask_anything/content", requireRole("platform_admin"), (req, res) => {
+    res.json({ content: ask.adminContent(getStore()) });
+  });
+
+  app.post("/api/admin/features/:key/content/:recordId/action", requireRole("platform_admin", "moderator"), (req, res) => {
+    const store = getStore();
+    const def = getFeature(req.params.key);
+    if (!def || def.key !== "ask_anything") return res.status(404).json({ message: "Unknown feature." });
+    const body = req.body || {};
+    const result = ask.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
   // ---------- admin: audit ----------
   app.get("/api/admin/audit", requireRole("platform_admin"), (req, res) => {
     const store = getStore();
@@ -588,6 +712,7 @@ export function createApp() {
 
   // ---------- dev helper: reset demo data ----------
   app.post("/api/dev/reset", (_req, res) => {
+    ask.resetIntakeRate();
     resetStore();
     saveStore();
     res.json({ ok: true });
