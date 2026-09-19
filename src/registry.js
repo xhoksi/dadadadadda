@@ -47,7 +47,6 @@ export const FEATURES = [
       backNote: field({ type: "string", default: "", max: 500 }),
       cornerLabel: field({ type: "string", default: "Flip", max: 30 }),
       animation: field({ type: "enum", default: "fold", values: ["fold", "roll", "fade"] }),
-      backBlocks: field({ type: "array", default: [], items: "string", maxItems: 12 }),
     },
   },
   {

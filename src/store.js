@@ -62,6 +62,7 @@ function seed() {
     pageFeatures,
     grants: [],
     askAnything: [],
+    placements: {},
     audit: [
       {
         id: newId("audit"),
@@ -84,6 +85,7 @@ function load() {
     const raw = fs.readFileSync(dataFile, "utf8");
     store = JSON.parse(raw);
     if (!Array.isArray(store.askAnything)) store.askAnything = [];
+    if (!store.placements || typeof store.placements !== "object") store.placements = {};
   } catch {
     store = seed();
     persist();

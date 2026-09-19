@@ -8,6 +8,9 @@ const loginStatus = document.getElementById("login-status");
 const askCard = document.getElementById("ask-card");
 const askCardSub = document.getElementById("ask-card-sub");
 const askManager = document.getElementById("ask-manager");
+const blocksCard = document.getElementById("blocks-card");
+const blocksCardSub = document.getElementById("blocks-card-sub");
+const blocksManager = document.getElementById("blocks-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -35,6 +38,7 @@ let user = null;
 let currentPage = null;
 let featureState = new Map();
 let askState = { box: null };
+let blocksState = { front: [], back: [], nightHidden: [], flippable: false };
 
 const TIER_LABEL = {
   free: "Free",
@@ -207,6 +211,10 @@ async function loadFeatures() {
   const hasAsk = featureState.has("ask_anything");
   askCard.hidden = !hasAsk;
   if (hasAsk) loadAsk();
+
+  const hasBlocks = featureState.has("other_side");
+  blocksCard.hidden = !hasBlocks;
+  if (hasBlocks) loadBlocks();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -532,6 +540,121 @@ askManager.addEventListener("click", (e) => {
   else if (act === "move-up") movePublished(btn, -1);
   else if (act === "move-down") movePublished(btn, 1);
   else postAskAction(act, btn);
+});
+
+// ---------- block layout manager ----------
+function blockEntries() {
+  const out = [];
+  for (const b of blocksState.front) out.push({ id: b.id, side: "front" });
+  for (const b of blocksState.back) out.push({ id: b.id, side: "back" });
+  return out;
+}
+
+async function saveBlocks() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/blocks`, {
+    method: "PATCH",
+    body: { blocks: blockEntries() },
+  });
+  if (!res.ok) {
+    blocksCardSub.textContent = data.message || "Could not save the layout.";
+    return;
+  }
+  blocksCardSub.textContent = data.message || "Layout saved.";
+  await loadBlocks();
+}
+
+function renderBlocks() {
+  blocksManager.textContent = "";
+  const hiddenNow = blocksState.nightHidden.length ? ` Night-only blocks hidden now: ${blocksState.nightHidden.join(", ")}.` : "";
+  blocksCardSub.textContent =
+    `Place blocks on the front or back of the card.${blocksState.flippable ? "" : " The flip is currently off; back assignments are kept."}${hiddenNow}`;
+
+  for (const [type, label] of [["front", "Front"], ["back", "Back"]]) {
+    const items = type === "front" ? blocksState.front : blocksState.back;
+    const h = document.createElement("h3");
+    h.className = "ask-group";
+    h.textContent = `${label} (${items.length})`;
+    blocksManager.appendChild(h);
+    if (items.length === 0) {
+      const none = document.createElement("p");
+      none.className = "ask-none";
+      none.textContent = "No blocks here.";
+      blocksManager.appendChild(none);
+      continue;
+    }
+    items.forEach((b, i) => {
+      const row = document.createElement("div");
+      row.className = "block-row";
+      const name = document.createElement("span");
+      name.className = "block-row-name";
+      name.textContent = b.label;
+      name.title = b.id;
+      row.appendChild(name);
+      const ops = document.createElement("div");
+      ops.className = "ask-ops";
+      if (type === "back") {
+        const up = askCardButton("Up", "b-up", b.id);
+        const down = askCardButton("Down", "b-down", b.id);
+        if (i === 0) up.disabled = true;
+        if (i === items.length - 1) down.disabled = true;
+        ops.appendChild(up);
+        ops.appendChild(down);
+        const toFront = askCardButton("Move to front", "b-front", b.id);
+        ops.appendChild(toFront);
+      } else {
+        const toBack = askCardButton("Move to back", "b-back", b.id);
+        ops.appendChild(toBack);
+      }
+      row.appendChild(ops);
+      blocksManager.appendChild(row);
+    });
+  }
+}
+
+async function loadBlocks() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/blocks`);
+  if (!res.ok) {
+    blocksCardSub.textContent = data.message || "Could not load the card layout.";
+    return;
+  }
+  blocksState = {
+    front: data.front,
+    back: data.back,
+    nightHidden: data.nightHidden,
+    flippable: data.flippable,
+  };
+  renderBlocks();
+}
+
+function blockAction(act, id) {
+  const find = (arr) => arr.find((b) => b.id === id);
+  if (act === "b-back") {
+    const b = find(blocksState.front);
+    if (!b) return;
+    blocksState.front = blocksState.front.filter((x) => x.id !== id);
+    blocksState.back.push(b);
+  } else if (act === "b-front") {
+    const b = find(blocksState.back);
+    if (!b) return;
+    blocksState.back = blocksState.back.filter((x) => x.id !== id);
+    blocksState.front.push(b);
+  } else if (act === "b-up" || act === "b-down") {
+    const idx = blocksState.back.findIndex((x) => x.id === id);
+    const swap = idx + (act === "b-up" ? -1 : 1);
+    if (idx === -1 || swap < 0 || swap >= blocksState.back.length) return;
+    const arr = [...blocksState.back];
+    [arr[idx], arr[swap]] = [arr[swap], arr[idx]];
+    blocksState.back = arr;
+  } else {
+    return;
+  }
+  saveBlocks();
+}
+
+blocksManager.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  blockAction(btn.dataset.act, btn.dataset.rid);
 });
 
 async function loadProfile() {

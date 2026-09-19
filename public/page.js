@@ -10,6 +10,20 @@ const el = {
   moonWrap: document.getElementById("moon-wrap"),
 };
 
+const faces = {
+  card: document.getElementById("card"),
+  inner: document.getElementById("flip-inner"),
+  front: document.getElementById("face-front"),
+  back: document.getElementById("face-back"),
+  frontBlocks: document.getElementById("front-blocks"),
+  backBlocks: document.getElementById("back-blocks"),
+  backNote: document.getElementById("back-note"),
+  backLinkWrap: document.getElementById("back-link-wrap"),
+  corner: document.getElementById("flip-corner"),
+  backToFront: document.getElementById("back-to-front"),
+  flipped: false,
+};
+
 const FEATURE_ITEM_LABEL = {
   moon: "The moon",
   ask_anything: "Ask me a question",
@@ -47,8 +61,13 @@ async function load() {
     el.bio.textContent = p.bio || "No bio yet";
     el.avatar.textContent = p.displayName ? p.displayName[0].toUpperCase() : "?";
 
+    const card = data.card || { flippable: false, front: [] };
+    const linkOnFront = card.front.some((b) => b.id === "link");
+    const linkOnBack = card.flippable && card.back.some((b) => b.id === "link");
+
     el.linkWrap.textContent = "";
-    if (p.link && p.link.label && p.link.url) {
+    faces.backLinkWrap.textContent = "";
+    if ((linkOnFront || !card.flippable) && p.link && p.link.label && p.link.url) {
       const a = document.createElement("a");
       a.className = "m-link";
       a.textContent = p.link.label;
@@ -56,6 +75,29 @@ async function load() {
       a.target = "_blank";
       a.rel = "noopener noreferrer";
       el.linkWrap.appendChild(a);
+    }
+    if (linkOnBack && p.link && p.link.label && p.link.url) {
+      const a = document.createElement("a");
+      a.className = "m-link";
+      a.textContent = p.link.label;
+      a.href = p.link.url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      faces.backLinkWrap.appendChild(a);
+    }
+
+    renderChips(card.front, faces.frontBlocks);
+    if (card.flippable) {
+      faces.backNote.hidden = false;
+      faces.backNote.textContent = card.note || "—";
+      renderChips(card.back, faces.backBlocks);
+      faces.corner.hidden = false;
+      faces.corner.textContent = card.cornerLabel || "Flip";
+      faces.inner.classList.remove("anim-fold", "anim-roll", "anim-fade");
+      faces.inner.classList.add(`anim-${card.animation || "fold"}`);
+    } else {
+      faces.backNote.hidden = true;
+      faces.back.hidden = true;
     }
 
     el.featureLabels.textContent = "";
@@ -83,6 +125,36 @@ async function load() {
     el.bio.textContent = err.message;
   }
 }
+
+function renderChips(list, container) {
+  container.textContent = "";
+  for (const b of list) {
+    if (b.id === "link") continue;
+    const li = document.createElement("li");
+    li.className = "block-chip";
+    li.textContent = b.label;
+    container.appendChild(li);
+  }
+}
+
+function setFlipped(flipped, moveFocus) {
+  faces.flipped = flipped;
+  faces.card.classList.toggle("flipped", flipped);
+  faces.back.hidden = !flipped;
+  faces.front.setAttribute("aria-hidden", flipped ? "true" : "false");
+  faces.back.setAttribute("aria-hidden", flipped ? "false" : "true");
+  faces.front.tabIndex = flipped ? -1 : 0;
+  faces.back.tabIndex = flipped ? 0 : -1;
+  if (moveFocus) {
+    (flipped ? faces.backToFront : faces.corner).focus();
+  }
+}
+
+faces.corner.addEventListener("click", () => setFlipped(true, true));
+faces.backToFront.addEventListener("click", () => setFlipped(false, true));
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && faces.flipped) setFlipped(false, true);
+});
 
 const askEl = {
   wrap: document.getElementById("ask-anything"),

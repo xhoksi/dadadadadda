@@ -137,9 +137,116 @@ h2.h2 {
   white-space: pre-line;
 }
 
+.flip-scene {
+  perspective: 1400px;
+}
+
 .ask-answer.hand {
   font-family: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
   color: var(--text);
+}
+
+.flip-inner {
+  display: grid;
+  transform-style: preserve-3d;
+  transition: transform 0.5s cubic-bezier(0.4, 0.1, 0.2, 1);
+}
+
+.flip-inner.anim-roll {
+  transition-timing-function: cubic-bezier(0.4, 0.1, 0.2, 1.4);
+}
+
+.flip-inner.anim-fade {
+  transition: transform 0.3s ease;
+}
+
+.flip-face {
+  grid-area: 1 / 1;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+.face-back {
+  transform: rotateY(180deg);
+}
+
+.face-card.flipped .flip-inner {
+  transform: rotateY(180deg);
+}
+
+.face-card:not(.flipped) .face-back,
+.face-card.flipped .face-front {
+  visibility: hidden;
+}
+
+.corner-btn {
+  position: relative;
+  margin-top: 14px;
+  padding: 9px 16px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.corner-btn:hover {
+  border-color: var(--crimson);
+}
+
+.back-btn {
+  padding: 9px 16px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  margin-top: 14px;
+}
+
+.back-btn:hover {
+  border-color: var(--crimson);
+}
+
+.back-note {
+  margin: 0 0 12px;
+  white-space: pre-line;
+  font-size: 15px;
+}
+
+.face-blocks {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.block-chip {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flip-inner {
+    transition: none !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .corner-btn,
+  .back-btn {
+    width: 100%;
+  }
 }
 
 .ask-none {

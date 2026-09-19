@@ -20,6 +20,7 @@ import {
   destroySession,
 } from "./auth.js";
 import * as ask from "./content/ask_anything.js";
+import { flipCard, pageBlocks, setPlacements } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -166,6 +167,7 @@ function publicFeatures(store, page, now) {
   return {
     profile: pageProfile(store, page.id),
     features: result,
+    card: flipCard(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -438,6 +440,44 @@ export function createApp() {
     if (!result.ok) return res.status(result.status).json(result);
     saveStore();
     res.json(result);
+  });
+
+  // ---------- owner: block layout (front/back placement) ----------
+  app.get("/api/me/pages/:id/blocks", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const blocks = pageBlocks(store, page, now());
+    res.json({
+      pageId: page.id,
+      available: blocks.front.concat(blocks.back).map((b) => b.id),
+      front: blocks.front,
+      back: blocks.back,
+      nightHidden: blocks.hidden,
+      flippable: evaluateFeature(store, page.id, "other_side", now()).effectiveEnabled,
+    });
+  });
+
+  app.patch("/api/me/pages/:id/blocks", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const entries = req.body && req.body.blocks;
+    const result = setPlacements(store, page, entries, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    reportAudit(store, {
+      actor: req.user.id,
+      scope: "page",
+      feature: "other_side",
+      action: "owner.placements",
+      before: {},
+      after: { blocks: store.placements[page.id] },
+      reason: "",
+    });
+    saveStore();
+    res.json({ ...result, blocks: pageBlocks(store, page, now()) });
   });
 
   // ---------- public ----------

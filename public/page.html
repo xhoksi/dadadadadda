@@ -9,11 +9,25 @@
   <body>
     <main class="page-shell">
       <section class="m-card" id="card">
-        <div class="avatar" id="avatar" aria-hidden="true">?</div>
-        <h1 id="name">—</h1>
-        <p id="bio"></p>
-        <div id="link-wrap"></div>
-        <div id="moon-wrap"></div>
+        <div class="flip-scene" id="flip-scene">
+          <div class="flip-inner" id="flip-inner">
+            <div class="flip-face face-front" id="face-front" aria-label="Card front">
+              <div class="avatar" id="avatar" aria-hidden="true">?</div>
+              <h1 id="name">—</h1>
+              <p id="bio"></p>
+              <ul id="front-blocks" class="face-blocks"></ul>
+              <div id="link-wrap"></div>
+              <div id="moon-wrap"></div>
+            </div>
+            <div class="flip-face face-back" id="face-back" aria-label="Card back" hidden>
+              <p id="back-note" class="back-note"></p>
+              <div id="back-link-wrap"></div>
+              <ul id="back-blocks" class="face-blocks"></ul>
+              <button id="back-to-front" type="button" class="back-btn">Back to front</button>
+            </div>
+          </div>
+        </div>
+        <button id="flip-corner" type="button" class="corner-btn" hidden>Flip</button>
       </section>
       <section class="m-card" aria-label="Enabled features">
         <h2 class="h2">On this page</h2>
