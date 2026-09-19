@@ -26,6 +26,7 @@ import * as archive from "./content/archive.js";
 import * as moon from "./content/moon.js";
 import * as guestbook from "./content/guestbook.js";
 import * as neighbours from "./content/neighbours.js";
+import * as alive from "./content/alive.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -187,6 +188,7 @@ function publicFeatures(store, page, now) {
     moon: moon.publicView(store, page, now),
     guestbook: guestbook.publicView(store, page, now),
     neighbours: neighbours.publicView(store, page, now),
+    alive: alive.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -790,6 +792,46 @@ export function createApp() {
     res.status(201).json({ id: result.record.id, status: result.record.status, submittedAt: result.record.submittedAt, note: result.note });
   });
 
+  // ---------- public: alive ----------
+  function aliveCtx(req, res) {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) {
+      res.status(404).json({ message: "Page not found." });
+      return null;
+    }
+    const excluded = isOwnerOrAdmin(req.user, page) || alive.isBot(req.headers["user-agent"]);
+    return { store, page, excluded };
+  }
+
+  app.post("/api/pages/:slug/presence/heartbeat", (req, res) => {
+    const ctx = aliveCtx(req, res);
+    if (!ctx) return;
+    const result = alive.heartbeat(ctx.store, ctx.page, req.body, { excluded: ctx.excluded }, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
+  app.get("/api/pages/:slug/presence", (req, res) => {
+    const ctx = aliveCtx(req, res);
+    if (!ctx) return;
+    if (!alive.childExposed(ctx.store, ctx.page, "alive_presence", now())) {
+      return res.status(404).json({ message: "Presence is not available." });
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ count: alive.presenceCount(ctx.store, ctx.page, now()), ...alive.publicView(ctx.store, ctx.page, now()).presence });
+  });
+
+  app.post("/api/pages/:slug/hits", (req, res) => {
+    const ctx = aliveCtx(req, res);
+    if (!ctx) return;
+    const result = alive.recordHit(ctx.store, ctx.page, req.body, { excluded: ctx.excluded }, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    if (result.incremented) saveStore();
+    res.json(result);
+  });
+
   // ---------- public: time capsule ----------
   app.get("/api/pages/:slug/capsule", (req, res) => {
     const store = getStore();
@@ -1044,6 +1086,17 @@ export function createApp() {
 
   app.get("/api/admin/features/guestbook/content", requireRole("platform_admin"), (req, res) => {
     res.json({ content: guestbook.adminContent(getStore()) });
+  });
+
+  app.post("/api/admin/features/alive_hits/correct", requireRole("platform_admin", "moderator"), (req, res) => {
+    const store = getStore();
+    const body = req.body || {};
+    const page = getPage(store, body.pageId);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const result = alive.correctHits(store, page.id, body.count, req.user.id, body.reason, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
   });
 
   app.post("/api/admin/features/:key/content/:recordId/action", requireRole("platform_admin", "moderator"), (req, res) => {

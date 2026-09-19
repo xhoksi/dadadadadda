@@ -30,6 +30,14 @@ const el = {
   guestbookMessage: document.getElementById("guestbook-message"),
   guestbookStatus: document.getElementById("guestbook-status"),
   guestbookSubmit: document.getElementById("guestbook-submit"),
+  alive: document.getElementById("alive"),
+  alivePresence: document.getElementById("alive-presence"),
+  alivePresenceCount: document.getElementById("alive-presence-count"),
+  aliveClock: document.getElementById("alive-clock"),
+  aliveClockTime: document.getElementById("alive-clock-time"),
+  aliveClockLabel: document.getElementById("alive-clock-label"),
+  aliveHits: document.getElementById("alive-hits"),
+  aliveHitsCount: document.getElementById("alive-hits-count"),
 };
 
 const faces = {
@@ -373,6 +381,112 @@ el.guestbookForm.addEventListener("submit", async (ev) => {
   }
 });
 
+let aliveTokenMem = "";
+function browserToken() {
+  if (aliveTokenMem) return aliveTokenMem;
+  try {
+    const key = `misa-alive:${slug}`;
+    let token = localStorage.getItem(key);
+    if (!token) {
+      token = (crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).replace(/[^a-z0-9-]/gi, "");
+      localStorage.setItem(key, token);
+    }
+    aliveTokenMem = token;
+  } catch {
+    aliveTokenMem = `mem-${Date.now()}-${Math.random()}`.replace(/[^a-z0-9-]/gi, "");
+  }
+  return aliveTokenMem;
+}
+
+const aliveTimers = [];
+function clearAliveTimers() {
+  for (const t of aliveTimers.splice(0)) clearInterval(t);
+}
+
+function renderClock(node, cfg) {
+  const opts = { timeZone: cfg.timezone, hour: "2-digit", minute: "2-digit", hour12: cfg.hourFormat === "12h" };
+  try {
+    node.textContent = new Intl.DateTimeFormat("en-GB", opts).format(new Date());
+  } catch {
+    node.textContent = new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: "UTC" }).format(new Date());
+  }
+}
+
+async function heartbeatPresence(cfg) {
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/presence/heartbeat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: browserToken(), visible: !document.hidden }),
+    });
+    if (!res.ok) throw new Error("unavailable");
+    const data = await res.json();
+    if (!data.excluded) el.alivePresenceCount.textContent = String(data.count);
+  } catch {
+    // A service outage must show Unavailable, not a fabricated zero.
+    el.alivePresenceCount.textContent = "Unavailable";
+  }
+}
+
+function qualifyHit(cfg) {
+  if (document.hidden) return;
+  const started = Date.now();
+  const check = async () => {
+    if (document.hidden) return;
+    const visibleMs = Date.now() - started;
+    if (visibleMs < (cfg.dwellSec || 5) * 1000) {
+      setTimeout(check, (cfg.dwellSec || 5) * 1000 - visibleMs + 100);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/hits`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: browserToken(), visibleMs }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.count !== undefined) el.aliveHitsCount.textContent = String(data.count);
+    } catch {}
+  };
+  setTimeout(check, (cfg.dwellSec || 5) * 1000 + 100);
+}
+
+function renderAlive(data) {
+  clearAliveTimers();
+  const a = data.alive;
+  if (!a) {
+    el.alive.hidden = true;
+    return;
+  }
+  el.alive.hidden = false;
+
+  el.alivePresence.hidden = !a.presence || !a.presence.available;
+  if (a.presence && a.presence.available) {
+    el.alivePresenceCount.textContent = String(a.presence.count);
+    heartbeatPresence(a.presence);
+    aliveTimers.push(setInterval(() => {
+      if (!document.hidden) heartbeatPresence(a.presence);
+    }, (a.presence.heartbeatSec || 20) * 1000));
+  }
+
+  el.aliveClock.hidden = !a.clock;
+  if (a.clock) {
+    renderClock(el.aliveClockTime, a.clock);
+    el.aliveClockLabel.textContent = a.clock.locationLabel || "";
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const period = reduce ? 60000 : 1000;
+    aliveTimers.push(setInterval(() => renderClock(el.aliveClockTime, a.clock), period));
+  }
+
+  el.aliveHits.hidden = !a.hits;
+  if (a.hits) {
+    el.aliveHitsCount.textContent = String(a.hits.count);
+    el.aliveHits.className = `alive-widget alive-hits style-${a.hits.style}`;
+    qualifyHit(a.hits);
+  }
+}
+
 async function load() {
   try {
     const res = await fetch(`/api/pages/${encodeURIComponent(slug)}`, { headers: { Accept: "application/json" } });
@@ -449,6 +563,7 @@ async function load() {
     renderHistory(data);
     renderNeighbours(data);
     renderGuestbook(data);
+    renderAlive(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();

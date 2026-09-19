@@ -166,7 +166,7 @@ export const FEATURES = [
   {
     key: "alive", name: "Alive", category: "presence", tier: TIERS.free_plus_lifetime,
     eligiblePlans: ["free", "lifetime"], defaultEnabled: false, requiresConfig: false,
-    limits: { heartbeatSec: 20, leaseSec: 60, hitWindowMin: 30 },
+    limits: { heartbeatSec: 20, leaseSec: 60, hitWindowMin: 30, hitDwellSec: 5 },
     description: "A group of three small widgets: presence, owner clock and a retro hit counter.",
     fields: {
       timezone: field({ type: "string", default: "UTC" }),

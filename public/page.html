@@ -67,6 +67,23 @@
           <button type="submit" id="guestbook-submit">Sign</button>
         </form>
       </section>
+      <section class="m-card alive-card" id="alive" aria-label="Alive" hidden>
+        <h2 class="h2">Alive</h2>
+        <div class="alive-widgets">
+          <div class="alive-widget alive-presence" id="alive-presence" hidden>
+            <span class="alive-value" id="alive-presence-count">—</span>
+            <span class="alive-label">here now</span>
+          </div>
+          <div class="alive-widget alive-clock" id="alive-clock" hidden>
+            <span class="alive-value alive-clock-time" id="alive-clock-time">--:--</span>
+            <span class="alive-label" id="alive-clock-label"></span>
+          </div>
+          <div class="alive-widget alive-hits" id="alive-hits" hidden>
+            <span class="alive-value alive-hits-count" id="alive-hits-count">0</span>
+            <span class="alive-label">visits</span>
+          </div>
+        </div>
+      </section>
       <section class="m-card" id="ask-anything" aria-label="Ask me anything" hidden>
         <h2 class="h2">Ask me anything</h2>
         <p id="ask-prompt" class="ask-prompt"></p>

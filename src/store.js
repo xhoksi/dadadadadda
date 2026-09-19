@@ -64,6 +64,9 @@ function seed() {
     askAnything: [],
     guestbook: [],
     neighbourEdges: [],
+    presenceLeases: [],
+    hits: {},
+    hitDedup: {},
     placements: {},
     drawSchedules: {},
     pageArchive: {},
@@ -91,6 +94,9 @@ function load() {
     if (!Array.isArray(store.askAnything)) store.askAnything = [];
     if (!Array.isArray(store.guestbook)) store.guestbook = [];
     if (!Array.isArray(store.neighbourEdges)) store.neighbourEdges = [];
+    if (!Array.isArray(store.presenceLeases)) store.presenceLeases = [];
+    if (!store.hits || typeof store.hits !== "object") store.hits = {};
+    if (!store.hitDedup || typeof store.hitDedup !== "object") store.hitDedup = {};
     if (!store.placements || typeof store.placements !== "object") store.placements = {};
     if (!store.drawSchedules || typeof store.drawSchedules !== "object") store.drawSchedules = {};
     if (!store.pageArchive || typeof store.pageArchive !== "object") store.pageArchive = {};
