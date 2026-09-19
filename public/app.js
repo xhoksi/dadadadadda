@@ -20,6 +20,9 @@ const archiveManager = document.getElementById("archive-manager");
 const guestbookCard = document.getElementById("guestbook-card");
 const guestbookCardSub = document.getElementById("guestbook-card-sub");
 const guestbookManager = document.getElementById("guestbook-manager");
+const neighbourCard = document.getElementById("neighbour-card");
+const neighbourCardSub = document.getElementById("neighbour-card-sub");
+const neighbourManager = document.getElementById("neighbour-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -236,6 +239,10 @@ async function loadFeatures() {
   const hasGuestbook = featureState.has("guestbook");
   guestbookCard.hidden = !hasGuestbook;
   if (hasGuestbook) loadGuestbook();
+
+  const hasNeighbours = featureState.has("neighbours");
+  neighbourCard.hidden = !hasNeighbours;
+  if (hasNeighbours) loadNeighbours();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -787,6 +794,117 @@ guestbookManager.addEventListener("click", (e) => {
   } else if (act === "move-up") gbMove(btn, -1);
   else if (act === "move-down") gbMove(btn, 1);
   else gbModerate(act, btn);
+});
+
+// ---------- neighbours manager ----------
+let neighbourState = null;
+
+function neighbourButton(label, act, id) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "ask-btn";
+  btn.textContent = label;
+  btn.dataset.act = act;
+  if (id) btn.dataset.id = id;
+  return btn;
+}
+
+function renderNeighboursManager(state) {
+  neighbourManager.textContent = "";
+  neighbourCardSub.textContent = `Neighbours on /${currentPage.slug}. ${state.slotsUsed} of ${state.slotsMax} slots used (${state.slotsFree} free).`;
+
+  const form = document.createElement("form");
+  form.className = "nb-form";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "nb-input";
+  input.placeholder = "Misa handle";
+  input.setAttribute("aria-label", "Neighbour handle");
+  const add = document.createElement("button");
+  add.type = "submit";
+  add.className = "ask-btn";
+  add.textContent = "Nominate";
+  form.appendChild(input);
+  form.appendChild(add);
+  neighbourManager.appendChild(form);
+
+  if (state.nominations.length === 0) {
+    const none = document.createElement("p");
+    none.className = "ask-none";
+    none.textContent = "No nominations yet. Add up to five Misa pages.";
+    neighbourManager.appendChild(none);
+    return;
+  }
+  for (const n of state.nominations) {
+    const row = document.createElement("div");
+    row.className = "ask-row";
+    const head = document.createElement("div");
+    head.className = "ask-row-head";
+    const name = document.createElement("span");
+    name.className = "gb-name";
+    name.textContent = n.target.handle ? `${n.target.handle} (/${n.target.slug})` : "removed page";
+    const status = document.createElement("span");
+    status.className = "ask-row-time";
+    status.textContent = n.status === "mutual" ? "Mutual" : "Waiting for them";
+    head.appendChild(name);
+    head.appendChild(status);
+    row.appendChild(head);
+    const ops = document.createElement("div");
+    ops.className = "ask-ops";
+    ops.appendChild(neighbourButton("Up", "move-up", n.toPageId));
+    ops.appendChild(neighbourButton("Down", "move-down", n.toPageId));
+    ops.appendChild(neighbourButton("Remove", "remove", n.toPageId));
+    row.appendChild(ops);
+    neighbourManager.appendChild(row);
+  }
+}
+
+async function loadNeighbours() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/neighbours`);
+  if (!res.ok) {
+    neighbourCardSub.textContent = "Could not load neighbours.";
+    return;
+  }
+  neighbourState = data;
+  renderNeighboursManager(data);
+}
+
+async function moveNomination(id, delta) {
+  if (!neighbourState) return;
+  const ids = neighbourState.nominations.map((n) => n.toPageId);
+  const idx = ids.indexOf(id);
+  const swap = idx + delta;
+  if (idx === -1 || swap < 0 || swap >= ids.length) return;
+  [ids[idx], ids[swap]] = [ids[swap], ids[idx]];
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/neighbours/reorder`, { method: "POST", body: { order: ids } });
+  neighbourCardSub.textContent = data.message || (res.ok ? "Order updated." : "Reorder failed.");
+  if (res.ok) loadNeighbours();
+}
+
+neighbourManager.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = neighbourManager.querySelector(".nb-input");
+  const handle = input.value.trim();
+  if (!handle) return;
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/neighbours`, { method: "POST", body: { handle } });
+  neighbourCardSub.textContent = data.message || (res.ok ? "Nomination saved." : "Could not nominate.");
+  if (res.ok) {
+    input.value = "";
+    loadNeighbours();
+  }
+});
+
+neighbourManager.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === "move-up") moveNomination(btn.dataset.id, -1);
+  else if (act === "move-down") moveNomination(btn.dataset.id, 1);
+  else if (act === "remove") {
+    const { res, data } = await api(`/api/me/pages/${currentPage.id}/neighbours/${btn.dataset.id}`, { method: "DELETE" });
+    neighbourCardSub.textContent = data.message || (res.ok ? "Removed." : "Could not remove.");
+    if (res.ok) loadNeighbours();
+  }
 });
 
 // ---------- block layout manager ----------

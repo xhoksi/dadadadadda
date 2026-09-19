@@ -19,6 +19,8 @@ const el = {
   historyCard: document.getElementById("history-card"),
   historySelect: document.getElementById("history-select"),
   historyView: document.getElementById("history-view"),
+  neighboursCard: document.getElementById("neighbours-card"),
+  neighboursList: document.getElementById("neighbours-list"),
   guestbook: document.getElementById("guestbook"),
   guestbookHeading: document.getElementById("guestbook-heading"),
   guestbookPrompt: document.getElementById("guestbook-prompt"),
@@ -271,6 +273,37 @@ function renderMoon(data) {
   el.moonWrap.appendChild(wrap);
 }
 
+function renderNeighbours(data) {
+  const n = data.neighbours;
+  if (!n) {
+    el.neighboursCard.hidden = true;
+    return;
+  }
+  el.neighboursCard.hidden = false;
+  el.neighboursList.textContent = "";
+  if (n.entries.length === 0) {
+    const none = document.createElement("p");
+    none.className = "neighbour-none";
+    none.textContent = "No mutual neighbours yet.";
+    el.neighboursList.appendChild(none);
+    return;
+  }
+  for (const entry of n.entries) {
+    const chip = document.createElement("a");
+    chip.className = "neighbour-chip";
+    chip.href = `/p/${encodeURIComponent(entry.slug)}`;
+    if (entry.color) chip.style.setProperty("--chip-color", entry.color);
+    const dot = document.createElement("span");
+    dot.className = "neighbour-dot";
+    dot.setAttribute("aria-hidden", "true");
+    const name = document.createElement("span");
+    name.textContent = entry.handle || entry.slug;
+    chip.appendChild(dot);
+    chip.appendChild(name);
+    el.neighboursList.appendChild(chip);
+  }
+}
+
 function renderGuestbook(data) {
   const gb = data.guestbook;
   if (!gb) {
@@ -414,6 +447,7 @@ async function load() {
     renderDraw(data);
     renderCapsule(data);
     renderHistory(data);
+    renderNeighbours(data);
     renderGuestbook(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {

@@ -25,6 +25,7 @@ import * as capsule from "./content/time_capsule.js";
 import * as archive from "./content/archive.js";
 import * as moon from "./content/moon.js";
 import * as guestbook from "./content/guestbook.js";
+import * as neighbours from "./content/neighbours.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -185,6 +186,7 @@ function publicFeatures(store, page, now) {
     capsule: capsule.publicView(store, page, now),
     moon: moon.publicView(store, page, now),
     guestbook: guestbook.publicView(store, page, now),
+    neighbours: neighbours.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -262,7 +264,7 @@ export function createApp() {
       config: { draft: pf.draft, published: pf.published },
       fields: def.fields,
       version: pf.version,
-      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : def.key === "guestbook" ? { counts: guestbook.inbox(store, page.id).counts } : null,
+      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : def.key === "guestbook" ? { counts: guestbook.inbox(store, page.id).counts } : def.key === "neighbours" ? neighbours.slots(store, page.id) : null,
     });
   });
 
@@ -636,6 +638,43 @@ export function createApp() {
     if (!result.ok) return res.status(result.status).json(result);
     saveStore();
     res.json(result);
+  });
+
+  // ---------- owner: neighbours ----------
+  app.get("/api/me/pages/:id/neighbours", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    res.json(neighbours.ownerView(ctx.store, ctx.page, now()));
+  });
+
+  app.post("/api/me/pages/:id/neighbours", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    if (!evaluateFeature(ctx.store, ctx.page.id, "neighbours", now()).effectiveEnabled) {
+      return res.status(409).json({ message: "Enable Neighbours before nominating pages." });
+    }
+    const result = neighbours.nominate(ctx.store, ctx.page, req.body || {}, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.status(201).json({ ...result, state: neighbours.ownerView(ctx.store, ctx.page, now()) });
+  });
+
+  app.delete("/api/me/pages/:id/neighbours/:toPageId", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    const result = neighbours.remove(ctx.store, ctx.page, req.params.toPageId, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, state: neighbours.ownerView(ctx.store, ctx.page, now()) });
+  });
+
+  app.post("/api/me/pages/:id/neighbours/reorder", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    const result = neighbours.reorder(ctx.store, ctx.page, req.body && req.body.order, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, state: neighbours.ownerView(ctx.store, ctx.page, now()) });
   });
 
   // ---------- owner: block layout (front/back placement) ----------

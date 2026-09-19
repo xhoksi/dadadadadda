@@ -63,6 +63,7 @@ function seed() {
     grants: [],
     askAnything: [],
     guestbook: [],
+    neighbourEdges: [],
     placements: {},
     drawSchedules: {},
     pageArchive: {},
@@ -89,6 +90,7 @@ function load() {
     store = JSON.parse(raw);
     if (!Array.isArray(store.askAnything)) store.askAnything = [];
     if (!Array.isArray(store.guestbook)) store.guestbook = [];
+    if (!Array.isArray(store.neighbourEdges)) store.neighbourEdges = [];
     if (!store.placements || typeof store.placements !== "object") store.placements = {};
     if (!store.drawSchedules || typeof store.drawSchedules !== "object") store.drawSchedules = {};
     if (!store.pageArchive || typeof store.pageArchive !== "object") store.pageArchive = {};

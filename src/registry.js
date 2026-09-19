@@ -158,12 +158,10 @@ export const FEATURES = [
   },
   {
     key: "neighbours", name: "Neighbours", category: "network", tier: TIERS.free,
-    eligiblePlans: ["free", "lifetime"], defaultEnabled: false, requiresConfig: true,
+    eligiblePlans: ["free", "lifetime"], defaultEnabled: false, requiresConfig: false,
     limits: LIMITS.neighbours,
     description: "A mutual network of up to five pages; a neighbour appears only if both nominate each other.",
-    fields: {
-      nominations: field({ type: "array", default: [], items: "string", maxItems: 5 }),
-    },
+    fields: {},
   },
   {
     key: "alive", name: "Alive", category: "presence", tier: TIERS.free_plus_lifetime,

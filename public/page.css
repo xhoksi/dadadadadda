@@ -456,3 +456,33 @@ h2.h2 {
   border-radius: 8px;
   font: inherit;
 }
+
+.neighbour-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.neighbour-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--chip-color, var(--border));
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.neighbour-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--chip-color, var(--muted));
+}
+
+.neighbour-none {
+  color: var(--muted);
+}
