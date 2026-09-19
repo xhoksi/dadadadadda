@@ -38,7 +38,7 @@ let user = null;
 let currentPage = null;
 let featureState = new Map();
 let askState = { box: null };
-let blocksState = { front: [], back: [], nightHidden: [], flippable: false };
+let blocksState = { front: [], back: [], nightHidden: [], nightOnly: [], night: null, flippable: false };
 
 const TIER_LABEL = {
   free: "Free",
@@ -565,9 +565,13 @@ async function saveBlocks() {
 
 function renderBlocks() {
   blocksManager.textContent = "";
-  const hiddenNow = blocksState.nightHidden.length ? ` Night-only blocks hidden now: ${blocksState.nightHidden.join(", ")}.` : "";
+  const hiddenNow = blocksState.nightHidden.length ? ` Hidden now: ${blocksState.nightHidden.join(", ")}.` : "";
+  const nightState =
+    blocksState.night && (blocksState.night.active || blocksState.night.next)
+      ? ` Night is ${blocksState.night.active ? "active" : "off"} in ${blocksState.night.timezone}; ${blocksState.night.next ? `next ${blocksState.night.next.label} ${new Date(blocksState.night.next.at).toISOString()}` : ""}.`
+      : " Night only flags publish on the night_shift settings.";
   blocksCardSub.textContent =
-    `Place blocks on the front or back of the card.${blocksState.flippable ? "" : " The flip is currently off; back assignments are kept."}${hiddenNow}`;
+    `Place blocks on the front or back of the card.${blocksState.flippable ? "" : " The flip is currently off; back assignments are kept."}${hiddenNow} Switching the feature off hides every Night only block; only moving a block back to Always visible brings it back outside the schedule.${nightState}`;
 
   for (const [type, label] of [["front", "Front"], ["back", "Back"]]) {
     const items = type === "front" ? blocksState.front : blocksState.back;
@@ -592,6 +596,16 @@ function renderBlocks() {
       row.appendChild(name);
       const ops = document.createElement("div");
       ops.className = "ask-ops";
+      const nightOnly = document.createElement("label");
+      nightOnly.className = "night-only";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.dataset.act = "night";
+      cb.dataset.rid = b.id;
+      cb.checked = blocksState.nightOnly.includes(b.id);
+      nightOnly.appendChild(cb);
+      nightOnly.appendChild(document.createTextNode("Night only"));
+      ops.appendChild(nightOnly);
       if (type === "back") {
         const up = askCardButton("Up", "b-up", b.id);
         const down = askCardButton("Down", "b-down", b.id);
@@ -611,6 +625,20 @@ function renderBlocks() {
   }
 }
 
+async function toggleNightOnly(id, mark) {
+  const target = new Set(blocksState.nightOnly);
+  if (mark) target.add(id);
+  else target.delete(id);
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/night_shift`, {
+    method: "PATCH",
+    body: { config: { blocks: [...target] } },
+  });
+  if (!res.ok) {
+    blocksCardSub.textContent = (data && data.errors && (data.errors.end || data.errors._)) || (data && data.message) || "Could not change night-only flags.";
+  }
+  await loadBlocks();
+}
+
 async function loadBlocks() {
   const { res, data } = await api(`/api/me/pages/${currentPage.id}/blocks`);
   if (!res.ok) {
@@ -621,6 +649,8 @@ async function loadBlocks() {
     front: data.front,
     back: data.back,
     nightHidden: data.nightHidden,
+    nightOnly: data.nightOnly || [],
+    night: data.night || null,
     flippable: data.flippable,
   };
   renderBlocks();
@@ -655,6 +685,12 @@ blocksManager.addEventListener("click", (e) => {
   const btn = e.target.closest("button[data-act]");
   if (!btn) return;
   blockAction(btn.dataset.act, btn.dataset.rid);
+});
+
+blocksManager.addEventListener("change", (e) => {
+  const cb = e.target.closest("input[data-act='night']");
+  if (!cb) return;
+  toggleNightOnly(cb.dataset.rid, cb.checked);
 });
 
 async function loadProfile() {

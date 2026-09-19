@@ -10,6 +10,13 @@ export function toHHMM(minutes) {
   return `${h}:${m}`;
 }
 
+// UTC offset of an instant as signed minutes east of UTC (e.g. +120 for CEST).
+export function localOffsetMinutes(timezone, epochMs) {
+  const off = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "longOffset" }).format(new Date(epochMs));
+  const m = /GMT([+-]\d{2}):(\d{2})/.exec(off);
+  return m ? Number(m[1]) * 60 + Math.sign(Number(m[1])) * Number(m[2]) : 0;
+}
+
 // Local wall-clock time (HH:mm) in the given IANA zone, using Intl (DST-safe:
 // skipped minutes never occur, repeated minutes produce the same value).
 export function localMinutes(timezone, now) {
@@ -26,16 +33,46 @@ export function localMinutes(timezone, now) {
 }
 
 export function isDaylight(timezone, now) {
-  const d = now instanceof Date ? now : new Date(now);
-  const year = d.getUTCFullYear();
-  const jan = new Date(Date.UTC(year, 0, 1, 12, 0, 0));
-  const jul = new Date(Date.UTC(year, 6, 1, 12, 0, 0));
-  const fmt = (d) => {
-    const off = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "longOffset" }).format(d);
-    const m = /GMT([+-]\d{2}):(\d{2})/.exec(off);
-    return m ? Number(m[1]) * 60 + Math.sign(Number(m[1])) * Number(m[2]) : 0;
+  const d = new Date(now instanceof Date ? now : new Date(now));
+  const jan = new Date(Date.UTC(d.getUTCFullYear(), 0, 1, 12, 0, 0));
+  return localOffsetMinutes(timezone, d.getTime()) !== localOffsetMinutes(timezone, jan.getTime());
+}
+
+// Local wall-clock breakdown (year/month/day/hour/minute) in a zone via Intl.
+function localWall(timezone, epochMs) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(epochMs));
+  const read = (t) => parts.find((p) => p.type === t).value;
+  return {
+    year: Number(read("year")),
+    month: Number(read("month")),
+    day: Number(read("day")),
+    hour: Number(read("hour")),
+    minute: Number(read("minute")),
   };
-  return fmt(jul) !== fmt(jan);
+}
+
+// Epoch (ms) at which the owner's local wall clock shows hh:mm on the given
+// local date, or null when that wall time never occurs (DST-gap minutes).
+function epochForLocal(timezone, { year, month, day }, minutes) {
+  const noon = Date.UTC(year, month - 1, day, 12, 0, 0, 0);
+  const off = localOffsetMinutes(timezone, noon);
+  const t = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - off * 60000 + minutes * 60000);
+  for (let k = 0; k < 3; k++) {
+    const wall = localWall(timezone, t.getTime());
+    const sameDate = wall.year === year && wall.month === month && wall.day === day;
+    const diff = minutes - (wall.hour * 60 + wall.minute);
+    if (sameDate && diff === 0) return t.getTime();
+    t.setTime(t.getTime() + diff * 60000);
+  }
+  return null;
 }
 
 // Recurring daily window: start-inclusive, end-exclusive. Overnight windows
@@ -53,38 +90,24 @@ export function nightActive(timezone, start, end, now) {
   return inWindow(start, end, localMinutes(timezone, now));
 }
 
-// Next boundary crossing moment in UTC for a recurring window.
+// Next boundary crossing moment in UTC for a recurring window. Exact under DST:
+// boundaries are converted from owner wall-clock to real instants, and a wall
+// time that never occurs (spring-forward gap) is simply skipped.
 export function nextBoundaryUtc(timezone, start, end, now) {
-  const d = now instanceof Date ? now : new Date(now);
-  const cur = localMinutes(timezone, d);
+  const d = new Date(now instanceof Date ? now : new Date(now));
   const s = parseHHMM(start);
   const e = parseHHMM(end);
   if (s === null || e === null || s === e) return null;
-  const insideNow = inWindow(start, end, cur);
+  const today = localWall(timezone, d.getTime());
+  const baseLocalMidnight = Date.UTC(today.year, today.month - 1, today.day, 0, 0, 0, 0);
   const candidates = [];
-  const oneDay = 24 * 60 * 60 * 1000;
   for (let i = 0; i <= 3; i++) {
-    const day = new Date(d.getTime() + i * oneDay);
-    for (const [label, target] of [["start", s], ["end", e]]) {
-      const dt = new Date(day.getTime());
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23",
-      }).formatToParts(dt);
-      const read = (t) => parts.find((p) => p.type === t).value;
-      dt.setMinutes(0, 0, 0, 0);
-      dt.setHours(0, 0, 0, 0);
-      const targetDate = new Date(Date.UTC(Number(read("year")), Number(read("month")) - 1, Number(read("day")), 0, 0, 0, 0));
-      const boundary = new Date(targetDate.getTime() + target * 60 * 1000);
-      if (boundary.getTime() > d.getTime()) candidates.push({ label, boundary });
+    const day = localWall(timezone, baseLocalMidnight + i * 86400000 + 12 * 3600000);
+    for (const [label, target] of [["opens", s], ["closes", e]]) {
+      const epoch = epochForLocal(timezone, day, target);
+      if (epoch !== null && epoch > d.getTime()) candidates.push({ label, at: new Date(epoch).toISOString() });
     }
   }
-  candidates.sort((a, b) => a.boundary - b.boundary);
-  return candidates[0] ? { label: candidates[0].label, at: candidates[0].boundary.toISOString() } : null;
+  candidates.sort((a, b) => a.at.localeCompare(b.at));
+  return candidates[0] || null;
 }

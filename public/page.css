@@ -242,6 +242,16 @@ h2.h2 {
   }
 }
 
+.night-note {
+  margin: 14px 0 0;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--muted);
+  background: linear-gradient(135deg, rgba(153, 27, 33, 0.14), rgba(90, 24, 154, 0.12));
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
 @media (max-width: 380px) {
   .corner-btn,
   .back-btn {

@@ -97,6 +97,12 @@ export function validateConfig(featureKey, config, previous) {
     }
     next[name] = value;
   }
+  if (typeof def.validate === "function") {
+    const cross = def.validate(next);
+    if (cross && typeof cross === "object" && !Array.isArray(cross)) {
+      for (const [k, v] of Object.entries(cross)) if (v && !errors[k]) errors[k] = v;
+    }
+  }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true, value: next };
 }

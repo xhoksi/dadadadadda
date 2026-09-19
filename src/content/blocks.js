@@ -1,6 +1,6 @@
 import { allFeatures, getFeature } from "../registry.js";
 import { evaluateFeature } from "../policy.js";
-import { nightActive } from "../schedule.js";
+import { nightActive, nextBoundaryUtc, localMinutes, toHHMM } from "../schedule.js";
 
 const BUILTIN_BLOCKS = [{ id: "link", label: "Link" }];
 
@@ -15,7 +15,7 @@ export function availableBlocks(store, page, now) {
   const ids = [];
   for (const b of BUILTIN_BLOCKS) ids.push(b.id);
   for (const f of allFeatures()) {
-    if (f.key === "other_side") continue;
+    if (f.widget === false) continue;
     if (evaluateFeature(store, page.id, f.key, now).effectiveEnabled) ids.push(f.key);
   }
   return ids;
@@ -30,13 +30,43 @@ function blockLabel(store, page, id, now) {
 
 // Which block ids are night-only (night_shift active) and currently outside the
 // night window. Those blocks must be absent from the public page entirely.
+// Which block ids are night-only (night_shift active) and currently outside the
+// night window. When the feature is disabled or inaccessible every night-only
+// block is hidden too (spec: "hide all Night only blocks whenever this feature
+// is disabled or inaccessible"); only unmarking a block (Always visible) shows
+// it outside the schedule.
 export function nightHiddenBlocks(store, page, now) {
   const nf = store.pageFeatures[`${page.id}:night_shift`];
   if (!nf || !nf.published) return new Set();
-  if (!evaluateFeature(store, page.id, "night_shift", now).effectiveEnabled) return new Set();
   const cfg = nf.published;
+  if (!evaluateFeature(store, page.id, "night_shift", now).effectiveEnabled) return new Set(cfg.blocks || []);
   if (nightActive(cfg.timezone, cfg.start, cfg.end, now)) return new Set();
   return new Set(cfg.blocks || []);
+}
+
+// Which block ids are currently marked "Night only" in the night_shift published
+// config, regardless of whether the window is active or the feature enabled.
+export function nightOnlyBlocks(store, page) {
+  const nf = store.pageFeatures[`${page.id}:night_shift`];
+  return new Set(((nf && nf.published) || {}).blocks || []);
+}
+
+// Public + owner night signal. Returns null when night_shift is not effective or
+// has no published config; never leaks the window while disabled.
+export function nightState(store, page, now) {
+  const nf = store.pageFeatures[`${page.id}:night_shift`];
+  if (!nf || !nf.published) return null;
+  if (!evaluateFeature(store, page.id, "night_shift", now).effectiveEnabled) return null;
+  const cfg = nf.published;
+  const active = nightActive(cfg.timezone, cfg.start, cfg.end, now);
+  const next = nextBoundaryUtc(cfg.timezone, cfg.start, cfg.end, now);
+  return {
+    active,
+    timezone: cfg.timezone,
+    localTime: toHHMM(localMinutes(cfg.timezone, now)),
+    message: active ? (cfg.message || "") : "",
+    next: next ? { label: next.label, at: next.at } : null,
+  };
 }
 
 // Full block list with resolved side + order. Front keeps a canonical order;

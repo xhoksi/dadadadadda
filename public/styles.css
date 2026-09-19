@@ -565,6 +565,16 @@ a.preview-anchor:hover {
   font-weight: 600;
 }
 
+.night-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .blocks-card {
   margin-top: 24px;
 }

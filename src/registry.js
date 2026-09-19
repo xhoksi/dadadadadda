@@ -40,7 +40,7 @@ export const FEATURES = [
   },
   {
     key: "other_side", name: "The other side", category: "cards", tier: TIERS.lifetime,
-    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: false,
+    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: false, widget: false,
     limits: { backNoteMax: 500 },
     description: "Flip the profile card to a handwritten note and blocks assigned to the back.",
     fields: {
@@ -51,9 +51,16 @@ export const FEATURES = [
   },
   {
     key: "night_shift", name: "The night shift", category: "scheduled", tier: TIERS.lifetime,
-    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: true,
+    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: true, widget: false,
     limits: { messageMax: 200 },
     description: "Selected blocks appear only during the owner's chosen local night hours.",
+    validate: (v) => {
+      const errs = {};
+      if (v && v.start && v.end && v.start === v.end) {
+        errs.end = "start and end must differ; equal times would silently mean all day.";
+      }
+      return Object.keys(errs).length ? errs : null;
+    },
     fields: {
       timezone: field({ type: "string", default: "UTC", required: true, pattern: "^[a-zA-Z_]+(/[a-zA-Z_+-]+)*$" }),
       start: field({ type: "string", default: "23:00", required: true, pattern: "^([01]\\d|2[0-3]):[0-5]\\d$" }),
@@ -87,7 +94,7 @@ export const FEATURES = [
   },
   {
     key: "archive", name: "The archive", category: "history", tier: TIERS.free,
-    eligiblePlans: ["free", "lifetime"], defaultEnabled: false, requiresConfig: false,
+    eligiblePlans: ["free", "lifetime"], defaultEnabled: false, requiresConfig: false, widget: false,
     limits: LIMITS.archive,
     description: "Keeps the last 12 replaced page versions with a public browsing switch.",
     fields: {

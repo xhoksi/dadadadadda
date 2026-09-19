@@ -5,6 +5,7 @@ const el = {
   name: document.getElementById("name"),
   bio: document.getElementById("bio"),
   linkWrap: document.getElementById("link-wrap"),
+  night: document.getElementById("night-note"),
   featureLabels: document.getElementById("feature-labels"),
   foot: document.getElementById("foot"),
   moonWrap: document.getElementById("moon-wrap"),
@@ -61,13 +62,20 @@ async function load() {
     el.bio.textContent = p.bio || "No bio yet";
     el.avatar.textContent = p.displayName ? p.displayName[0].toUpperCase() : "?";
 
+    if (data.night && data.night.active && data.night.message) {
+      el.night.hidden = false;
+      el.night.textContent = data.night.message;
+    } else {
+      el.night.hidden = true;
+    }
+
     const card = data.card || { flippable: false, front: [] };
     const linkOnFront = card.front.some((b) => b.id === "link");
     const linkOnBack = card.flippable && card.back.some((b) => b.id === "link");
 
     el.linkWrap.textContent = "";
     faces.backLinkWrap.textContent = "";
-    if ((linkOnFront || !card.flippable) && p.link && p.link.label && p.link.url) {
+    if (linkOnFront && p.link && p.link.label && p.link.url) {
       const a = document.createElement("a");
       a.className = "m-link";
       a.textContent = p.link.label;

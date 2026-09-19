@@ -20,9 +20,16 @@ import {
   destroySession,
 } from "./auth.js";
 import * as ask from "./content/ask_anything.js";
-import { flipCard, pageBlocks, setPlacements } from "./content/blocks.js";
+import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Controllable server clock (see spec: "inject a controllable server clock").
+// Routes and policy use this single time source; tests swap it via setServerClock.
+let serverClock = () => new Date();
+export function setServerClock(fn) {
+  serverClock = typeof fn === "function" ? fn : () => new Date();
+}
 
 const LIMITS = {
   displayName: { min: 1, max: 40 },
@@ -94,7 +101,7 @@ function reportAudit(store, { actor, scope, feature, action, before, after, reas
     before,
     after,
     reason: reason || "",
-    time: new Date().toISOString(),
+    time: serverClock().toISOString(),
   });
 }
 
@@ -168,6 +175,7 @@ function publicFeatures(store, page, now) {
     profile: pageProfile(store, page.id),
     features: result,
     card: flipCard(store, page, now),
+    night: nightState(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -178,7 +186,7 @@ export function createApp() {
   app.use(express.json());
   app.use(authMiddleware);
 
-  const now = () => new Date().toISOString();
+  const now = () => serverClock().toISOString();
 
   // ---------- auth ----------
   app.post("/api/auth/login", (req, res) => {
@@ -245,6 +253,7 @@ export function createApp() {
       config: { draft: pf.draft, published: pf.published },
       fields: def.fields,
       version: pf.version,
+      state: def.key === "night_shift" ? nightState(store, page, now()) : null,
     });
   });
 
@@ -455,6 +464,8 @@ export function createApp() {
       front: blocks.front,
       back: blocks.back,
       nightHidden: blocks.hidden,
+      nightOnly: [...nightOnlyBlocks(store, page)],
+      night: nightState(store, page, now()),
       flippable: evaluateFeature(store, page.id, "other_side", now()).effectiveEnabled,
     });
   });
