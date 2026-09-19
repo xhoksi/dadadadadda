@@ -228,14 +228,38 @@ async function renderHistory(data) {
   }
 }
 
-function renderSymbol(data) {
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function renderMoon(data) {
   el.moonWrap.textContent = "";
-  if (data.features.some((f) => f.key === "moon")) {
-    const badge = document.createElement("span");
-    badge.className = "moon-badge";
-    badge.textContent = "☾ The moon";
-    el.moonWrap.appendChild(badge);
+  const m = data.moon;
+  if (!m) return;
+  const wrap = document.createElement("div");
+  wrap.className = `moon moon-${m.corner || "top-right"}`;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("viewBox", m.svg.viewBox);
+  svg.setAttribute("width", m.svg.width);
+  svg.setAttribute("height", m.svg.height);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", m.phase.label);
+  const disc = document.createElementNS(SVG_NS, "circle");
+  disc.setAttribute("cx", "50");
+  disc.setAttribute("cy", "50");
+  disc.setAttribute("r", "46");
+  disc.setAttribute("fill", m.svg.dark);
+  const lit = document.createElementNS(SVG_NS, "path");
+  lit.setAttribute("d", m.svg.path);
+  lit.setAttribute("fill", m.svg.color);
+  svg.appendChild(disc);
+  svg.appendChild(lit);
+  wrap.appendChild(svg);
+  if (m.showLabel) {
+    const label = document.createElement("span");
+    label.className = "moon-label";
+    label.textContent = m.phase.label;
+    wrap.appendChild(label);
   }
+  el.moonWrap.appendChild(wrap);
 }
 
 async function load() {
@@ -308,7 +332,7 @@ async function load() {
       el.featureLabels.appendChild(li);
     }
 
-    renderSymbol(data);
+    renderMoon(data);
     renderDraw(data);
     renderCapsule(data);
     renderHistory(data);
@@ -435,3 +459,12 @@ askEl.form.addEventListener("submit", async (ev) => {
 });
 
 load();
+
+// The lunar phase is recomputed on load, at least hourly, and when the tab
+// returns from the background. No runtime image or astronomy-service request.
+setInterval(() => {
+  if (!document.hidden) load();
+}, 3600000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) load();
+});

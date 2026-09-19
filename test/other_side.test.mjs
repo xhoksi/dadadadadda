@@ -184,6 +184,8 @@ test("02.1 flip UI: corner flips the card both ways with focus management", asyn
   await enableOtherSide("Careful now.");
   const dom = new JSDOM("", { url: `${base}/p/nova`, pretendToBeVisual: true, runScripts: "outside-only" });
   dom.window.fetch = (input, opts) => fetch(new URL(input, base).toString(), opts);
+  dom.window.setInterval = () => 0;
+  dom.window.setTimeout = () => 0;
   const html = await fetch(`${base}/page.html`).then((r) => r.text());
   dom.window.document.documentElement.innerHTML = html;
   const pageJs = readFileSync(new URL("../public/page.js", import.meta.url), "utf8");

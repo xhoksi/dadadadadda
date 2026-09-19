@@ -23,6 +23,7 @@ import * as ask from "./content/ask_anything.js";
 import * as draw from "./content/daily_draw.js";
 import * as capsule from "./content/time_capsule.js";
 import * as archive from "./content/archive.js";
+import * as moon from "./content/moon.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -181,6 +182,7 @@ function publicFeatures(store, page, now) {
     night: nightState(store, page, now),
     draw: draw.publicView(store, page, now),
     capsule: capsule.publicView(store, page, now),
+    moon: moon.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };

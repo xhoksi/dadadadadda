@@ -227,6 +227,8 @@ test("03.3 page UI: night note visible during the window, blocks hidden outside"
 
   const dom = new JSDOM("", { url: `${base}/p/nova`, pretendToBeVisual: true, runScripts: "outside-only" });
   dom.window.fetch = (input, opts) => fetch(new URL(input, base).toString(), opts);
+  dom.window.setInterval = () => 0;
+  dom.window.setTimeout = () => 0;
   dom.window.document.documentElement.innerHTML = await fetch(`${base}/page.html`).then((r) => r.text());
   const pageJs = readFileSync(new URL("../public/page.js", import.meta.url), "utf8");
   dom.window.eval(pageJs);
@@ -242,6 +244,8 @@ test("03.3 page UI: night note visible during the window, blocks hidden outside"
   at("2026-01-10T06:00:00Z");
   const dom2 = new JSDOM("", { url: `${base}/p/nova`, pretendToBeVisual: true, runScripts: "outside-only" });
   dom2.window.fetch = (input, opts) => fetch(new URL(input, base).toString(), opts);
+  dom2.window.setInterval = () => 0;
+  dom2.window.setTimeout = () => 0;
   dom2.window.document.documentElement.innerHTML = await fetch(`${base}/page.html`).then((r) => r.text());
   dom2.window.eval(pageJs);
   await new Promise((r) => setTimeout(r, 80));

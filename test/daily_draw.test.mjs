@@ -128,6 +128,8 @@ test("04.1 the same browser keeps the same card for the owner-local day", async 
   at("2026-01-10T09:00:00Z");
   const dom = new JSDOM("", { url: `${base}/p/nova`, pretendToBeVisual: true, runScripts: "outside-only" });
   dom.window.fetch = (input, opts) => fetch(new URL(input, base).toString(), opts);
+  dom.window.setInterval = () => 0;
+  dom.window.setTimeout = () => 0;
   const pageJs = readFileSync(new URL("../public/page.js", import.meta.url), "utf8");
   const html = await fetch(`${base}/page.html`).then((r) => r.text());
 
