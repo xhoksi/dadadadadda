@@ -23,6 +23,9 @@ const guestbookManager = document.getElementById("guestbook-manager");
 const neighbourCard = document.getElementById("neighbour-card");
 const neighbourCardSub = document.getElementById("neighbour-card-sub");
 const neighbourManager = document.getElementById("neighbour-manager");
+const chalkboardCard = document.getElementById("chalkboard-card");
+const chalkboardCardSub = document.getElementById("chalkboard-card-sub");
+const chalkboardManager = document.getElementById("chalkboard-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -243,6 +246,10 @@ async function loadFeatures() {
   const hasNeighbours = featureState.has("neighbours");
   neighbourCard.hidden = !hasNeighbours;
   if (hasNeighbours) loadNeighbours();
+
+  const hasChalkboard = featureState.has("chalkboard");
+  chalkboardCard.hidden = !hasChalkboard;
+  if (hasChalkboard) loadChalkboard();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -794,6 +801,94 @@ guestbookManager.addEventListener("click", (e) => {
   } else if (act === "move-up") gbMove(btn, -1);
   else if (act === "move-down") gbMove(btn, 1);
   else gbModerate(act, btn);
+});
+
+// ---------- chalkboard manager ----------
+let chalkState = null;
+
+function chalkPreview(strokes) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 100 60");
+  svg.setAttribute("aria-hidden", "true");
+  for (const s of strokes) {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#f4f4f4");
+    path.setAttribute("stroke-width", String(s.width || 3));
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("d", s.points.map((p, i) => `${i === 0 ? "M" : "L"} ${(p[0] * 100).toFixed(2)} ${(p[1] * 60).toFixed(2)}`).join(" "));
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+function chalkRow(item, actions) {
+  const fig = document.createElement("figure");
+  fig.className = `chalk-item${item.pinned ? " pinned" : ""}`;
+  fig.appendChild(chalkPreview(item.strokes));
+  if (item.description) {
+    const cap = document.createElement("figcaption");
+    cap.textContent = item.description;
+    fig.appendChild(cap);
+  }
+  const ops = document.createElement("div");
+  ops.className = "ask-ops";
+  for (const action of actions) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ask-btn";
+    btn.textContent = action[0].toUpperCase() + action.slice(1);
+    btn.dataset.id = item.id;
+    btn.dataset.action = action;
+    ops.appendChild(btn);
+  }
+  fig.appendChild(ops);
+  return fig;
+}
+
+function renderChalkboardManager(state) {
+  chalkboardManager.textContent = "";
+  chalkboardCardSub.textContent = `Kept ${state.counts.kept} / Pinned ${state.counts.pinned} · ${state.counts.pending} waiting`;
+  const pendingHead = document.createElement("p");
+  pendingHead.className = "chalk-head";
+  pendingHead.textContent = "Waiting for review";
+  chalkboardManager.appendChild(pendingHead);
+  if (state.pending.length === 0) {
+    const none = document.createElement("p");
+    none.className = "ask-none";
+    none.textContent = "No drawings waiting.";
+    chalkboardManager.appendChild(none);
+  }
+  for (const item of state.pending) chalkboardManager.appendChild(chalkRow(item, ["keep", "reject", "delete"]));
+
+  const keptHead = document.createElement("p");
+  keptHead.className = "chalk-head";
+  keptHead.textContent = "Kept";
+  chalkboardManager.appendChild(keptHead);
+  for (const item of state.kept) chalkboardManager.appendChild(chalkRow(item, [item.pinned ? "unpin" : "pin", "delete"]));
+}
+
+async function loadChalkboard() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/chalkboard/board`);
+  if (!res.ok) {
+    chalkboardCardSub.textContent = "Could not load the chalkboard.";
+    return;
+  }
+  chalkState = data;
+  renderChalkboardManager(data);
+}
+
+chalkboardManager.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const { id, action } = btn.dataset;
+  const base = `/api/me/pages/${currentPage.id}/features/chalkboard/records/${id}`;
+  const { res, data } = action === "delete"
+    ? await api(base, { method: "DELETE" })
+    : await api(`${base}/${action}`, { method: "POST", body: {} });
+  chalkboardCardSub.textContent = data.message || (res.ok ? "Updated." : "Could not update.");
+  if (res.ok) loadChalkboard();
 });
 
 // ---------- neighbours manager ----------

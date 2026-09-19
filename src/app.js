@@ -28,6 +28,7 @@ import * as guestbook from "./content/guestbook.js";
 import * as neighbours from "./content/neighbours.js";
 import * as alive from "./content/alive.js";
 import * as secret from "./content/secret_word.js";
+import * as chalkboard from "./content/chalkboard.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -191,6 +192,7 @@ function publicFeatures(store, page, now) {
     neighbours: neighbours.publicView(store, page, now),
     alive: alive.publicView(store, page, now),
     secret_word: secret.publicView(store, page, now),
+    chalkboard: chalkboard.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -198,7 +200,7 @@ function publicFeatures(store, page, now) {
 
 export function createApp() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "256kb" }));
   app.use(authMiddleware);
 
   const now = () => serverClock().toISOString();
@@ -268,7 +270,7 @@ export function createApp() {
       config: { draft: pf.draft, published: pf.published },
       fields: def.fields,
       version: pf.version,
-      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : def.key === "guestbook" ? { counts: guestbook.inbox(store, page.id).counts } : def.key === "neighbours" ? neighbours.slots(store, page.id) : null,
+      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : def.key === "guestbook" ? { counts: guestbook.inbox(store, page.id).counts } : def.key === "neighbours" ? neighbours.slots(store, page.id) : def.key === "chalkboard" ? { counts: chalkboard.counts(store, page.id) } : null,
     });
   });
 
@@ -681,6 +683,31 @@ export function createApp() {
     res.json(result);
   });
 
+  // ---------- owner: chalkboard ----------
+  app.get("/api/me/pages/:id/features/chalkboard/board", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    res.json(chalkboard.ownerView(ctx.store, ctx.page, now()));
+  });
+
+  app.post("/api/me/pages/:id/features/chalkboard/records/:recordId/:action", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    const result = chalkboard.moderate(ctx.store, ctx.page, req.params.recordId, req.params.action, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, board: chalkboard.ownerView(ctx.store, ctx.page, now()) });
+  });
+
+  app.delete("/api/me/pages/:id/features/chalkboard/records/:recordId", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    const result = chalkboard.deleteRecord(ctx.store, ctx.page, req.params.recordId);
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, board: chalkboard.ownerView(ctx.store, ctx.page, now()) });
+  });
+
   // ---------- owner: neighbours ----------
   app.get("/api/me/pages/:id/neighbours", requireAuth, (req, res) => {
     const ctx = ownerArchiveCtx(req, res);
@@ -895,6 +922,17 @@ export function createApp() {
     if (!resolved) return res.status(410).json({ message: "This unlock has expired. Enter the word again." });
     res.setHeader("Cache-Control", "no-store");
     res.json(resolved);
+  });
+
+  // ---------- public: chalkboard ----------
+  app.post("/api/pages/:slug/drawings", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const result = chalkboard.submitDrawing(store, page, req.body, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.status(201).json(result);
   });
 
   // ---------- public: time capsule ----------
@@ -1153,6 +1191,10 @@ export function createApp() {
     res.json({ content: guestbook.adminContent(getStore()) });
   });
 
+  app.get("/api/admin/features/chalkboard/content", requireRole("platform_admin"), (req, res) => {
+    res.json({ content: chalkboard.adminContent(getStore()) });
+  });
+
   app.post("/api/admin/features/alive_hits/correct", requireRole("platform_admin", "moderator"), (req, res) => {
     const store = getStore();
     const body = req.body || {};
@@ -1167,11 +1209,13 @@ export function createApp() {
   app.post("/api/admin/features/:key/content/:recordId/action", requireRole("platform_admin", "moderator"), (req, res) => {
     const store = getStore();
     const def = getFeature(req.params.key);
-    if (!def || (def.key !== "ask_anything" && def.key !== "guestbook")) return res.status(404).json({ message: "Unknown feature." });
+    if (!def || (def.key !== "ask_anything" && def.key !== "guestbook" && def.key !== "chalkboard")) return res.status(404).json({ message: "Unknown feature." });
     const body = req.body || {};
     const result = def.key === "guestbook"
       ? guestbook.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now())
-      : ask.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now());
+      : def.key === "chalkboard"
+        ? chalkboard.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now())
+        : ask.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now());
     if (!result.ok) return res.status(result.status).json(result);
     saveStore();
     res.json(result);

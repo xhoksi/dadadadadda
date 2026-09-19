@@ -879,3 +879,36 @@ a.preview-anchor:hover {
   border-radius: 8px;
   font: inherit;
 }
+
+/* chalkboard manager */
+.chalk-head {
+  margin: 12px 0 6px;
+  font-weight: 600;
+}
+
+.chalkboard-card .chalk-item {
+  display: inline-block;
+  width: 140px;
+  margin: 0 8px 8px 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  vertical-align: top;
+}
+
+.chalkboard-card .chalk-item.pinned {
+  border-color: #d8a84a;
+}
+
+.chalkboard-card .chalk-item svg {
+  width: 100%;
+  height: auto;
+  background: #20232a;
+  border-radius: 6px;
+}
+
+.chalkboard-card .chalk-item figcaption {
+  font-size: 0.75rem;
+  margin-top: 4px;
+  opacity: 0.75;
+}

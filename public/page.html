@@ -93,6 +93,21 @@
         <p id="secret-status" class="ask-status" hidden></p>
         <div id="secret-reveal" class="secret-reveal" hidden></div>
       </section>
+      <section class="m-card chalkboard-card" id="chalkboard" aria-label="Chalkboard" hidden>
+        <h2 class="h2" id="chalkboard-title">Chalkboard</h2>
+        <p class="chalk-instructions">Draw with a finger, stylus or mouse. One pen style.</p>
+        <canvas id="chalk-canvas" width="600" height="360" class="chalk-canvas" tabindex="0" aria-label="Drawing area"></canvas>
+        <div class="chalk-toolbar" role="toolbar" aria-label="Drawing controls">
+          <button type="button" id="chalk-undo">Undo</button>
+          <button type="button" id="chalk-clear">Clear</button>
+        </div>
+        <form id="chalk-form">
+          <input id="chalk-description" type="text" maxlength="280" placeholder="Describe your drawing" aria-label="Drawing description" />
+          <p id="chalk-status" class="ask-status" hidden></p>
+          <button type="submit" id="chalk-submit">Submit</button>
+        </form>
+        <div id="chalk-gallery" class="chalk-gallery"></div>
+      </section>
       <section class="m-card" id="ask-anything" aria-label="Ask me anything" hidden>
         <h2 class="h2">Ask me anything</h2>
         <p id="ask-prompt" class="ask-prompt"></p>

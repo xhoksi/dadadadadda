@@ -559,3 +559,59 @@ h2.h2 {
   margin-top: 8px;
   font-weight: 600;
 }
+
+/* chalkboard */
+.chalk-canvas {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5 / 3;
+  display: block;
+  border-radius: 10px;
+  background: #20232a;
+  touch-action: none;
+}
+
+.chalkboard-card.theme-light .chalk-canvas {
+  background: #f3f1ea;
+}
+
+.chalk-toolbar {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.chalk-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.chalk-item {
+  margin: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.chalk-item.pinned {
+  border-color: #d8a84a;
+}
+
+.chalk-item svg {
+  width: 100%;
+  height: auto;
+  background: #20232a;
+  border-radius: 6px;
+}
+
+.chalkboard-card.theme-light .chalk-item svg {
+  background: #f3f1ea;
+}
+
+.chalk-item figcaption {
+  font-size: 0.75rem;
+  margin-top: 4px;
+  opacity: 0.75;
+}

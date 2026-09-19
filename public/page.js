@@ -43,6 +43,15 @@ const el = {
   secretInput: document.getElementById("secret-input"),
   secretStatus: document.getElementById("secret-status"),
   secretReveal: document.getElementById("secret-reveal"),
+  chalkboard: document.getElementById("chalkboard"),
+  chalkTitle: document.getElementById("chalkboard-title"),
+  chalkCanvas: document.getElementById("chalk-canvas"),
+  chalkUndo: document.getElementById("chalk-undo"),
+  chalkClear: document.getElementById("chalk-clear"),
+  chalkForm: document.getElementById("chalk-form"),
+  chalkDescription: document.getElementById("chalk-description"),
+  chalkStatus: document.getElementById("chalk-status"),
+  chalkGallery: document.getElementById("chalk-gallery"),
 };
 
 const faces = {
@@ -586,6 +595,154 @@ el.secretForm.addEventListener("submit", (ev) => {
   attemptSecret(phrase);
 });
 
+const chalk = { strokes: [], active: null, acceptNew: true, theme: "dark" };
+const CHALK_SCHEMA = 1;
+
+function chalkPoint(ev) {
+  const r = el.chalkCanvas.getBoundingClientRect ? el.chalkCanvas.getBoundingClientRect() : { left: 0, top: 0, width: el.chalkCanvas.width, height: el.chalkCanvas.height };
+  const w = r.width || el.chalkCanvas.width || 1;
+  const h = r.height || el.chalkCanvas.height || 1;
+  const clamp = (v) => Math.min(1, Math.max(0, v));
+  return [clamp((ev.clientX - r.left) / w), clamp((ev.clientY - r.top) / h)];
+}
+
+function chalkRedraw() {
+  const ctx = el.chalkCanvas.getContext && el.chalkCanvas.getContext("2d");
+  if (!ctx) return;
+  const w = el.chalkCanvas.width;
+  const h = el.chalkCanvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = chalk.theme === "light" ? "#2b2b2b" : "#f4f4f4";
+  ctx.lineWidth = 3;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  for (const s of chalk.strokes) {
+    if (!s.points.length) continue;
+    ctx.beginPath();
+    ctx.moveTo(s.points[0][0] * w, s.points[0][1] * h);
+    for (const p of s.points.slice(1)) ctx.lineTo(p[0] * w, p[1] * h);
+    ctx.stroke();
+  }
+}
+
+function chalkStart(ev) {
+  if (!chalk.acceptNew) return;
+  if (ev.button !== undefined && ev.button !== 0) return;
+  chalk.active = { points: [chalkPoint(ev)] };
+  chalk.strokes.push(chalk.active);
+  chalkRedraw();
+}
+
+function chalkMove(ev) {
+  if (!chalk.active) return;
+  const p = chalkPoint(ev);
+  const last = chalk.active.points[chalk.active.points.length - 1];
+  if (Math.abs(p[0] - last[0]) < 0.004 && Math.abs(p[1] - last[1]) < 0.004) return;
+  chalk.active.points.push(p);
+  chalkRedraw();
+}
+
+function chalkEnd() {
+  chalk.active = null;
+}
+
+el.chalkCanvas.addEventListener("pointerdown", chalkStart);
+el.chalkCanvas.addEventListener("pointermove", chalkMove);
+el.chalkCanvas.addEventListener("pointerup", chalkEnd);
+el.chalkCanvas.addEventListener("pointerleave", chalkEnd);
+el.chalkUndo.addEventListener("click", (e) => {
+  e.preventDefault();
+  chalk.active = null;
+  chalk.strokes.pop();
+  chalkRedraw();
+});
+el.chalkClear.addEventListener("click", (e) => {
+  e.preventDefault();
+  chalk.active = null;
+  chalk.strokes = [];
+  chalkRedraw();
+});
+
+function chalkSvg(item) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 100 60");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", item.description || "A visitor drawing");
+  for (const s of item.strokes) {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", chalk.theme === "light" ? "#2b2b2b" : "#f4f4f4");
+    path.setAttribute("stroke-width", String(s.width || 3));
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("d", s.points.map((p, i) => `${i === 0 ? "M" : "L"} ${(p[0] * 100).toFixed(2)} ${(p[1] * 60).toFixed(2)}`).join(" "));
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+function renderChalkboard(data) {
+  const c = data.chalkboard;
+  if (!c) {
+    el.chalkboard.hidden = true;
+    return;
+  }
+  el.chalkboard.hidden = false;
+  chalk.theme = c.theme || "dark";
+  chalk.acceptNew = !!c.acceptNew;
+  el.chalkboard.className = `m-card chalkboard-card theme-${chalk.theme}`;
+  el.chalkTitle.textContent = c.title || "Chalkboard";
+  el.chalkForm.hidden = !chalk.acceptNew;
+  el.chalkStatus.hidden = true;
+  chalk.strokes = [];
+  chalk.active = null;
+  chalkRedraw();
+  el.chalkGallery.textContent = "";
+  for (const item of c.gallery) {
+    const fig = document.createElement("figure");
+    fig.className = `chalk-item${item.pinned ? " pinned" : ""}`;
+    fig.appendChild(chalkSvg(item));
+    if (item.description) {
+      const cap = document.createElement("figcaption");
+      cap.textContent = item.description;
+      fig.appendChild(cap);
+    }
+    el.chalkGallery.appendChild(fig);
+  }
+}
+
+el.chalkForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const strokes = chalk.strokes.map((s) => ({ points: s.points }));
+  if (strokes.length === 0) {
+    el.chalkStatus.textContent = "Draw something first.";
+    el.chalkStatus.hidden = false;
+    return;
+  }
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/drawings`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schemaVersion: CHALK_SCHEMA, strokes, description: el.chalkDescription.value.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      el.chalkStatus.textContent = data.message || "That drawing could not be sent.";
+      el.chalkStatus.hidden = false;
+      return;
+    }
+    el.chalkStatus.textContent = data.note || "Sent for review.";
+    el.chalkStatus.hidden = false;
+    chalk.strokes = [];
+    chalk.active = null;
+    chalkRedraw();
+    el.chalkDescription.value = "";
+  } catch {
+    el.chalkStatus.textContent = "Could not reach the server.";
+    el.chalkStatus.hidden = false;
+  }
+});
+
 async function load() {
   try {
     const res = await fetch(`/api/pages/${encodeURIComponent(slug)}`, { headers: { Accept: "application/json" } });
@@ -664,6 +821,7 @@ async function load() {
     renderGuestbook(data);
     renderAlive(data);
     renderSecret(data);
+    renderChalkboard(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();

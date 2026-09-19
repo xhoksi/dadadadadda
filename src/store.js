@@ -68,6 +68,7 @@ function seed() {
     hits: {},
     hitDedup: {},
     secretGrants: [],
+    drawings: [],
     placements: {},
     drawSchedules: {},
     pageArchive: {},
@@ -99,6 +100,7 @@ function load() {
     if (!store.hits || typeof store.hits !== "object") store.hits = {};
     if (!store.hitDedup || typeof store.hitDedup !== "object") store.hitDedup = {};
     if (!Array.isArray(store.secretGrants)) store.secretGrants = [];
+    if (!Array.isArray(store.drawings)) store.drawings = [];
     if (!store.placements || typeof store.placements !== "object") store.placements = {};
     if (!store.drawSchedules || typeof store.drawSchedules !== "object") store.drawSchedules = {};
     if (!store.pageArchive || typeof store.pageArchive !== "object") store.pageArchive = {};
