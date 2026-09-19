@@ -29,6 +29,7 @@ import * as neighbours from "./content/neighbours.js";
 import * as alive from "./content/alive.js";
 import * as secret from "./content/secret_word.js";
 import * as chalkboard from "./content/chalkboard.js";
+import * as tally from "./content/tally.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -193,6 +194,7 @@ function publicFeatures(store, page, now) {
     alive: alive.publicView(store, page, now),
     secret_word: secret.publicView(store, page, now),
     chalkboard: chalkboard.publicView(store, page, now),
+    tally: tally.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -270,7 +272,7 @@ export function createApp() {
       config: { draft: pf.draft, published: pf.published },
       fields: def.fields,
       version: pf.version,
-      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : def.key === "guestbook" ? { counts: guestbook.inbox(store, page.id).counts } : def.key === "neighbours" ? neighbours.slots(store, page.id) : def.key === "chalkboard" ? { counts: chalkboard.counts(store, page.id) } : null,
+      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : def.key === "guestbook" ? { counts: guestbook.inbox(store, page.id).counts } : def.key === "neighbours" ? neighbours.slots(store, page.id) : def.key === "chalkboard" ? { counts: chalkboard.counts(store, page.id) } : def.key === "tally" ? tally.ownerView(store, page, now()) : null,
     });
   });
 
@@ -375,6 +377,32 @@ export function createApp() {
       if (pf.published && pf.openedAt && resolved !== capsule.resolveReleaseUtc(pf.published, page)) {
         return res.status(409).json({ message: "A released capsule can't be re-sealed. Keep the same release time or leave this draft unpublished." });
       }
+    }
+    if (def.key === "tally") {
+      const published = tally.publishPoll(store, page, result.value, now());
+      if (!published.ok) return res.status(published.status).json(published);
+      pf.published = {
+        pollId: published.poll.id,
+        question: published.poll.question,
+        options: published.poll.options.map((o) => o.label),
+        visibility: published.poll.visibility,
+        acceptVotes: published.poll.acceptVotes,
+      };
+      pf.draft = null;
+      pf.version += 1;
+      pf.updatedAt = now();
+      reportAudit(store, {
+        actor: req.user.id,
+        scope: "page",
+        feature: def.key,
+        action: "owner.publish_tally",
+        before: { version: before.version },
+        after: { pollId: published.poll.id, revision: published.poll.revision, version: pf.version },
+        reason: (req.body && req.body.reason) || "",
+      });
+      archive.capture(store, page, req.user.id, now(), `publish ${def.key}`);
+      saveStore();
+      return res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: published.message });
     }
     if (def.key === "daily_draw") {
       const drew = draw.publishDeck(store, page, result.value, now());
@@ -708,6 +736,40 @@ export function createApp() {
     res.json({ ...result, board: chalkboard.ownerView(ctx.store, ctx.page, now()) });
   });
 
+  // ---------- owner: tally ----------
+  function ownerTallyCtx(req, res) {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return null;
+    return ctx;
+  }
+
+  app.post("/api/me/pages/:id/features/tally/close", requireAuth, (req, res) => {
+    const ctx = ownerTallyCtx(req, res);
+    if (!ctx) return;
+    const result = tally.closePoll(ctx.store, ctx.page, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, view: tally.ownerView(ctx.store, ctx.page, now()) });
+  });
+
+  app.post("/api/me/pages/:id/features/tally/reopen", requireAuth, (req, res) => {
+    const ctx = ownerTallyCtx(req, res);
+    if (!ctx) return;
+    const result = tally.reopenPoll(ctx.store, ctx.page, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, view: tally.ownerView(ctx.store, ctx.page, now()) });
+  });
+
+  app.post("/api/me/pages/:id/features/tally/reset", requireAuth, (req, res) => {
+    const ctx = ownerTallyCtx(req, res);
+    if (!ctx) return;
+    const result = tally.resetPoll(ctx.store, ctx.page, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, view: tally.ownerView(ctx.store, ctx.page, now()) });
+  });
+
   // ---------- owner: neighbours ----------
   app.get("/api/me/pages/:id/neighbours", requireAuth, (req, res) => {
     const ctx = ownerArchiveCtx(req, res);
@@ -933,6 +995,17 @@ export function createApp() {
     if (!result.ok) return res.status(result.status).json(result);
     saveStore();
     res.status(201).json(result);
+  });
+
+  // ---------- public: tally ----------
+  app.post("/api/pages/:slug/polls/:pollId/votes", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const result = tally.castVote(store, page, req.params.pollId, req.body, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
   });
 
   // ---------- public: time capsule ----------
@@ -1193,6 +1266,10 @@ export function createApp() {
 
   app.get("/api/admin/features/chalkboard/content", requireRole("platform_admin"), (req, res) => {
     res.json({ content: chalkboard.adminContent(getStore()) });
+  });
+
+  app.get("/api/admin/features/tally/content", requireRole("platform_admin"), (req, res) => {
+    res.json({ content: tally.adminContent(getStore()) });
   });
 
   app.post("/api/admin/features/alive_hits/correct", requireRole("platform_admin", "moderator"), (req, res) => {

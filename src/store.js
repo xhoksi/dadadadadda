@@ -69,6 +69,8 @@ function seed() {
     hitDedup: {},
     secretGrants: [],
     drawings: [],
+    tallyPolls: [],
+    tallyVotes: [],
     placements: {},
     drawSchedules: {},
     pageArchive: {},
@@ -101,6 +103,8 @@ function load() {
     if (!store.hitDedup || typeof store.hitDedup !== "object") store.hitDedup = {};
     if (!Array.isArray(store.secretGrants)) store.secretGrants = [];
     if (!Array.isArray(store.drawings)) store.drawings = [];
+    if (!Array.isArray(store.tallyPolls)) store.tallyPolls = [];
+    if (!Array.isArray(store.tallyVotes)) store.tallyVotes = [];
     if (!store.placements || typeof store.placements !== "object") store.placements = {};
     if (!store.drawSchedules || typeof store.drawSchedules !== "object") store.drawSchedules = {};
     if (!store.pageArchive || typeof store.pageArchive !== "object") store.pageArchive = {};

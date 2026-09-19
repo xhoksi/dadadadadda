@@ -52,6 +52,13 @@ const el = {
   chalkDescription: document.getElementById("chalk-description"),
   chalkStatus: document.getElementById("chalk-status"),
   chalkGallery: document.getElementById("chalk-gallery"),
+  tally: document.getElementById("tally"),
+  tallyQuestion: document.getElementById("tally-question"),
+  tallyForm: document.getElementById("tally-form"),
+  tallyOptions: document.getElementById("tally-options"),
+  tallyStatus: document.getElementById("tally-status"),
+  tallySubmit: document.getElementById("tally-submit"),
+  tallyResults: document.getElementById("tally-results"),
 };
 
 const faces = {
@@ -743,6 +750,127 @@ el.chalkForm.addEventListener("submit", async (ev) => {
   }
 });
 
+let tallyPoll = null;
+
+function tallyMarks(count) {
+  const wrap = document.createElement("span");
+  wrap.className = "tally-marks";
+  wrap.setAttribute("aria-hidden", "true");
+  let left = count;
+  while (left > 0) {
+    const group = document.createElement("span");
+    group.className = "tally-group";
+    const draw = Math.min(5, left);
+    for (let i = 0; i < draw; i += 1) {
+      const mark = document.createElement("span");
+      mark.className = "tally-mark";
+      group.appendChild(mark);
+    }
+    if (draw === 5) {
+      const slash = document.createElement("span");
+      slash.className = "tally-slash";
+      group.appendChild(slash);
+    }
+    wrap.appendChild(group);
+    left -= draw;
+  }
+  return wrap;
+}
+
+function renderTallyResults(t, totals) {
+  el.tallyResults.textContent = "";
+  const list = document.createElement("ul");
+  list.className = "tally-list";
+  for (const option of t.options) {
+    const count = (totals && totals[option.id]) || 0;
+    const li = document.createElement("li");
+    li.className = "tally-row";
+    const label = document.createElement("span");
+    label.className = "tally-label";
+    label.textContent = option.label;
+    const numeric = document.createElement("span");
+    numeric.className = "tally-count";
+    numeric.textContent = String(count);
+    numeric.setAttribute("aria-label", `${count} ${count === 1 ? "vote" : "votes"} for ${option.label}`);
+    li.appendChild(label);
+    li.appendChild(tallyMarks(count));
+    li.appendChild(numeric);
+    list.appendChild(li);
+  }
+  el.tallyResults.appendChild(list);
+  const total = document.createElement("p");
+  total.className = "tally-total";
+  total.textContent = `${t.total} ${t.total === 1 ? "vote" : "votes"} total`;
+  el.tallyResults.appendChild(total);
+  el.tallyResults.hidden = false;
+}
+
+function renderTally(data) {
+  const t = data.tally;
+  if (!t) {
+    el.tally.hidden = true;
+    return;
+  }
+  el.tally.hidden = false;
+  tallyPoll = t;
+  el.tallyQuestion.textContent = t.question;
+  el.tallyOptions.textContent = "";
+  for (const option of t.options) {
+    const label = document.createElement("label");
+    label.className = "tally-option";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = `tally-${t.pollId}`;
+    radio.value = option.id;
+    const span = document.createElement("span");
+    span.textContent = option.label;
+    label.appendChild(radio);
+    label.appendChild(span);
+    el.tallyOptions.appendChild(label);
+  }
+  const closed = !t.acceptVotes;
+  el.tallyForm.hidden = closed;
+  el.tallySubmit.disabled = closed;
+  el.tallyStatus.hidden = true;
+  if (closed) {
+    el.tallyStatus.textContent = "Voting is closed for this poll.";
+    el.tallyStatus.hidden = false;
+  }
+  if (t.totals) renderTallyResults(t, t.totals);
+  else el.tallyResults.hidden = true;
+}
+
+el.tallyForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  if (!tallyPoll) return;
+  const picked = el.tallyOptions.querySelector("input[name]:checked");
+  if (!picked) {
+    el.tallyStatus.textContent = "Choose one answer first.";
+    el.tallyStatus.hidden = false;
+    return;
+  }
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/polls/${tallyPoll.pollId}/votes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ optionId: picked.value, token: browserToken(), idempotencyKey: `idem-${Date.now()}-${Math.random()}` }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      el.tallyStatus.textContent = data.message || "Your vote could not be recorded.";
+      el.tallyStatus.hidden = false;
+      return;
+    }
+    el.tallyStatus.textContent = "Thanks — your vote is counted.";
+    el.tallyStatus.hidden = false;
+    if (data.totals) renderTallyResults(tallyPoll, data.totals);
+    el.tallyForm.hidden = true;
+  } catch {
+    el.tallyStatus.textContent = "Could not reach the server.";
+    el.tallyStatus.hidden = false;
+  }
+});
+
 async function load() {
   try {
     const res = await fetch(`/api/pages/${encodeURIComponent(slug)}`, { headers: { Accept: "application/json" } });
@@ -822,6 +950,7 @@ async function load() {
     renderAlive(data);
     renderSecret(data);
     renderChalkboard(data);
+    renderTally(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();

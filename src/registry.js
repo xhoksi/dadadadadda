@@ -18,7 +18,7 @@ const LIMITS = {
   guestbook: { nameMax: 40, messageMax: 200, visibleMax: 20, rateWindowMs: 600000, rateMax: 30, queueMax: 500 },
   neighbours: { slotsMax: 5 },
   chalkboard: { strokesMax: 100, pointsMax: 10000, payloadKB: 100, pendingMax: 100, keptMax: 50, pinnedMax: 3 },
-  tally: { questionMax: 200, optionMax: 80, optionsMin: 2, optionsMax: 4 },
+  tally: { questionMax: 200, optionMax: 80, optionsMin: 2, optionsMax: 4, retentionMs: 1000 * 60 * 60 * 24 * 90 },
   secret_word: { phraseMin: 4, phraseMax: 64, labelMax: 80, urlMax: 2048, attemptWindowMs: 600000, attemptMax: 10 },
 };
 
@@ -231,6 +231,13 @@ export const FEATURES = [
       options: field({ type: "array", default: [], items: "string", minItems: 2, maxItems: 4, max: 80 }),
       visibility: field({ type: "enum", default: "after_vote", values: ["after_vote", "always", "after_close"] }),
       acceptVotes: field({ type: "boolean", default: true }),
+    },
+    validate: (cfg) => {
+      if (!Array.isArray(cfg.options)) return {};
+      if (cfg.options.length < 2) return { options: "At least 2 options." };
+      if (cfg.options.length > 4) return { options: "At most 4 options." };
+      if (cfg.options.some((o) => typeof o !== "string" || o.trim().length === 0)) return { options: "Options cannot be empty." };
+      return {};
     },
   },
 ];

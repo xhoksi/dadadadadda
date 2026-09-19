@@ -26,6 +26,9 @@ const neighbourManager = document.getElementById("neighbour-manager");
 const chalkboardCard = document.getElementById("chalkboard-card");
 const chalkboardCardSub = document.getElementById("chalkboard-card-sub");
 const chalkboardManager = document.getElementById("chalkboard-manager");
+const tallyCard = document.getElementById("tally-card");
+const tallyCardSub = document.getElementById("tally-card-sub");
+const tallyManager = document.getElementById("tally-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -250,6 +253,10 @@ async function loadFeatures() {
   const hasChalkboard = featureState.has("chalkboard");
   chalkboardCard.hidden = !hasChalkboard;
   if (hasChalkboard) loadChalkboard();
+
+  const hasTally = featureState.has("tally");
+  tallyCard.hidden = !hasTally;
+  if (hasTally) loadTally();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -801,6 +808,73 @@ guestbookManager.addEventListener("click", (e) => {
   } else if (act === "move-up") gbMove(btn, -1);
   else if (act === "move-down") gbMove(btn, 1);
   else gbModerate(act, btn);
+});
+
+// ---------- tally manager ----------
+let tallyState = null;
+
+function renderTallyManager(current) {
+  tallyManager.textContent = "";
+  if (!current) {
+    tallyCardSub.textContent = "No published poll yet.";
+    return;
+  }
+  tallyCardSub.textContent = `Revision ${current.revision} · ${current.total} votes · ${current.status}`;
+  const list = document.createElement("ul");
+  list.className = "tally-list";
+  for (const option of current.counts) {
+    const li = document.createElement("li");
+    li.className = "tally-row";
+    const label = document.createElement("span");
+    label.className = "tally-label";
+    label.textContent = option.label;
+    const count = document.createElement("span");
+    count.className = "tally-count";
+    count.textContent = String(option.count);
+    li.appendChild(label);
+    li.appendChild(count);
+    list.appendChild(li);
+  }
+  tallyManager.appendChild(list);
+
+  const ops = document.createElement("div");
+  ops.className = "ask-ops";
+  if (current.status === "open") {
+    ops.appendChild(tallyButton("Close", "close"));
+  } else if (current.canReopen) {
+    ops.appendChild(tallyButton("Reopen", "reopen"));
+  }
+  ops.appendChild(tallyButton("Reset", "reset"));
+  tallyManager.appendChild(ops);
+}
+
+function tallyButton(label, action) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "ask-btn";
+  btn.textContent = label;
+  btn.dataset.action = action;
+  return btn;
+}
+
+async function loadTally() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/tally`);
+  if (!res.ok) {
+    tallyCardSub.textContent = "Could not load the tally.";
+    return;
+  }
+  tallyState = (data.state && data.state.current) || null;
+  renderTallyManager(tallyState);
+}
+
+tallyManager.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const action = btn.dataset.action;
+  if (action === "reset" && !window.confirm("Reset starts a new poll and keeps old totals separate. Continue?")) return;
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/tally/${action}`, { method: "POST", body: {} });
+  tallyCardSub.textContent = data.message || (res.ok ? "Updated." : "Could not update the tally.");
+  if (res.ok) loadTally();
 });
 
 // ---------- chalkboard manager ----------

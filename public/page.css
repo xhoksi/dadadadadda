@@ -615,3 +615,78 @@ h2.h2 {
   margin-top: 4px;
   opacity: 0.75;
 }
+
+/* tally */
+.tally-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tally-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tally-results {
+  margin-top: 12px;
+}
+
+.tally-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tally-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.tally-label {
+  flex: 1;
+}
+
+.tally-marks {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.tally-group {
+  position: relative;
+  display: inline-flex;
+  gap: 2px;
+}
+
+.tally-mark {
+  width: 2px;
+  height: 16px;
+  background: currentColor;
+}
+
+.tally-slash {
+  position: absolute;
+  left: -2px;
+  top: 7px;
+  width: 18px;
+  height: 2px;
+  background: currentColor;
+  transform: rotate(-25deg);
+  transform-origin: center;
+}
+
+.tally-count {
+  min-width: 2ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tally-total {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
