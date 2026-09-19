@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>misa.lol — profile editor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="card">
+        <header class="card-head">
+          <h1>Profile editor</h1>
+          <p class="sub">Edit your misa.lol profile and link.</p>
+        </header>
+
+        <form id="profile-form" novalidate>
+          <div class="field">
+            <label for="display-name">Display name</label>
+            <input id="display-name" name="displayName" type="text" maxlength="40" autocomplete="off" />
+            <p class="error" id="display-name-error" hidden></p>
+          </div>
+
+          <div class="field">
+            <label for="bio">Bio</label>
+            <textarea id="bio" name="bio" rows="3" maxlength="160"></textarea>
+            <p class="error" id="bio-error" hidden></p>
+          </div>
+
+          <div class="field">
+            <label for="link-label">Link label</label>
+            <input id="link-label" name="linkLabel" type="text" maxlength="30" autocomplete="off" />
+            <p class="error" id="link-label-error" hidden></p>
+          </div>
+
+          <div class="field">
+            <label for="link-url">Link URL</label>
+            <input id="link-url" name="linkUrl" type="text" inputmode="url" placeholder="https://…" autocomplete="off" />
+            <p class="error" id="link-url-error" hidden></p>
+          </div>
+
+          <div class="actions">
+            <button id="save-button" type="submit">Save</button>
+            <p id="save-status" class="status" role="status" aria-live="polite"></p>
+          </div>
+        </form>
+      </section>
+
+      <aside class="card preview-card" aria-label="Profile preview">
+        <h2 class="h2">Preview</h2>
+        <div class="profile-card">
+          <div class="avatar" id="preview-avatar" aria-hidden="true">N</div>
+          <h3 class="preview-name" id="preview-name">&nbsp;</h3>
+          <p class="preview-bio" id="preview-bio"></p>
+          <div class="preview-link" id="preview-link-wrap"></div>
+        </div>
+      </aside>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
