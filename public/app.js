@@ -308,6 +308,90 @@ function collectConfig(controls) {
   return out;
 }
 
+// ---------- time capsule panel (resolved instant, sealed preview, unpublish) ----------
+function tzOffsetMinutes(tz, atMs) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" }).formatToParts(new Date(atMs));
+    const raw = (parts.find((p) => p.type === "timeZoneName") || {}).value || "";
+    const m = /GMT([+-])(\d{2}):(\d{2})/.exec(raw);
+    if (!m) return 0;
+    const mag = Number(m[2]) * 60 + Number(m[3]);
+    return m[1] === "-" ? -mag : mag;
+  } catch {
+    return 0;
+  }
+}
+
+function resolveWallClient(dateStr, timeStr, tz, offsetStr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr || "")) return null;
+  const minutes = /^([01]\d|2[0-3]):([0-5]\d)$/.test(timeStr || "") ? Number(timeStr.slice(0, 2)) * 60 + Number(timeStr.slice(3, 5)) : null;
+  if (minutes === null) return null;
+  const explicit = /^([+-])([01]\d|2[0-3]):([0-5]\d)$/.exec(offsetStr || "");
+  const override = explicit ? (explicit[1] === "-" ? -1 : 1) * (Number(explicit[2]) * 60 + Number(explicit[3])) : null;
+  const naive = Date.parse(`${dateStr}T00:00:00Z`) + minutes * 60000;
+  if (Number.isNaN(naive)) return null;
+  let utc = naive - (override != null ? override : tzOffsetMinutes(tz, naive)) * 60000;
+  for (let i = 0; i < 3 && override == null; i++) {
+    const next = naive - tzOffsetMinutes(tz, utc) * 60000;
+    if (next === utc) break;
+    utc = next;
+  }
+  return new Date(utc).toISOString();
+}
+
+function renderCapsulePanel(panel, controls, detail, refresh) {
+  const box = document.createElement("div");
+  box.className = "cfg-field capsule-panel";
+  const title = document.createElement("h3");
+  title.className = "ask-group";
+  title.textContent = "Time capsule";
+  box.appendChild(title);
+
+  const resolved = document.createElement("p");
+  resolved.className = "cfg-hint";
+  box.appendChild(resolved);
+
+  const seal = document.createElement("p");
+  seal.className = "capsule-mock";
+  box.appendChild(seal);
+
+  const state = detail.state || {};
+  const live = document.createElement("p");
+  live.className = "cfg-hint";
+  live.textContent = state.published
+    ? `Live capsule: ${state.open ? "open since" : "sealed until"} ${state.releaseAt || "—"}${state.open ? "" : ` (${state.label || "no label"})`}.`
+    : "No published capsule yet. A draft never leaves the server.";
+  box.appendChild(live);
+
+  const update = () => {
+    const v = collectConfig(controls);
+    const iso = resolveWallClient(v.releaseDate, v.releaseTime, v.timezone, v.releaseOffset);
+    resolved.textContent = iso
+      ? `Resolves to ${iso} UTC on the server. ${v.releaseTime === "00:00" || !v.releaseTime ? "Date-only picks 00:00 in the chosen timezone." : ""}`
+      : "Enter a real date (YYYY-MM-DD) and HH:MM to see the resolved UTC time.";
+    seal.textContent = `Preview sealed: ✉ ${v.label || "A sealed message"}`;
+  };
+  for (const n of ["releaseDate", "releaseTime", "timezone", "releaseOffset", "label"]) {
+    if (controls[n]) controls[n].input.addEventListener("input", update);
+    if (controls[n]) controls[n].input.addEventListener("change", update);
+  }
+  update();
+
+  if (detail.config && detail.config.published) {
+    const unpub = document.createElement("button");
+    unpub.type = "button";
+    unpub.className = "config-btn";
+    unpub.textContent = "Unpublish capsule";
+    unpub.addEventListener("click", async () => {
+      const r = await api(`/api/me/pages/${currentPage.id}/features/time_capsule/unpublish`, { method: "POST", body: {} });
+      live.textContent = r.data.message || (r.res.ok ? "Unpublished." : "Could not unpublish.");
+      if (r.res.ok) refresh("Unpublished. Future reads are hidden.");
+    });
+    box.appendChild(unpub);
+  }
+  panel.appendChild(box);
+}
+
 async function openConfigEditor(key) {
   const card = document.getElementById(`feature-card-${key}`);
   let panel = card.querySelector(".config-panel");
@@ -337,6 +421,7 @@ async function openConfigEditor(key) {
   const draftState = detail.config.draft ? "(draft not published)" : detail.config.published ? "(live)" : "(not configured)";
   hint.textContent = `Save keeps a private draft; Publish makes it live config. Current: ${draftState}.`;
   panel.appendChild(hint);
+  if (key === "time_capsule") renderCapsulePanel(panel, controls, detail, refresh);
 
   const actions = document.createElement("div");
   actions.className = "cfg-actions";

@@ -45,7 +45,7 @@ function validateFieldValue(desc, value) {
   }
   if (desc.type === "string") {
     if (typeof value !== "string") return "must be a string";
-    if (desc.pattern && !new RegExp(desc.pattern).test(value)) return `must match ${desc.pattern}`;
+    if (desc.pattern && value !== "" && !new RegExp(desc.pattern).test(value)) return `must match ${desc.pattern}`;
     if (desc.max != null && value.length > desc.max) return `must be ${desc.max} characters or fewer`;
     if (desc.min != null && value.length < desc.min) return `must be ${desc.min} characters or more`;
     return null;

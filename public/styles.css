@@ -789,3 +789,11 @@ a.preview-anchor:hover {
     grid-template-columns: 1fr;
   }
 }
+.capsule-panel .capsule-mock {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px dashed #6c2b32;
+  border-radius: 10px;
+  color: #e9b7bd;
+  background: #1d1519;
+}

@@ -4,6 +4,13 @@ export function parseHHMM(value) {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
+export function parseOffset(value) {
+  const m = /^([+-])([01]\d|2[0-3]):([0-5]\d)$/.exec(String(value));
+  if (!m) return null;
+  const magnitude = Number(m[2]) * 60 + Number(m[3]);
+  return m[1] === "-" ? -magnitude : magnitude;
+}
+
 export function toHHMM(minutes) {
   const h = String(Math.floor(minutes / 60)).padStart(2, "0");
   const m = String(minutes % 60).padStart(2, "0");
@@ -81,6 +88,49 @@ function epochForLocal(timezone, { year, month, day }, minutes) {
     t.setTime(t.getTime() + diff * 60000);
   }
   return null;
+}
+
+// Resolve an owner wall-clock moment (date + minutes-of-day + timezone) to a UTC
+// instant. Handles DST from the zone table:
+//   - a wall time that never occurs (spring gap) -> { gap: true }
+//   - a wall time that occurs twice (fall-back repeat) -> { ambiguous: true }
+//     unless an explicit offset override narrows it to one of the two instants.
+// Returns { ok: true, utcISO, offsetMinutes } or { ok:false, gap, ambiguous }.
+export function resolveWall(timezone, { year, month, day }, minutes, offsetOverrideMinutes = null) {
+  const noon = Date.UTC(year, month - 1, day, 12, 0, 0, 0);
+  let off = offsetOverrideMinutes != null ? offsetOverrideMinutes : localOffsetMinutes(timezone, noon);
+  let target = Date.UTC(year, month - 1, day, 0, 0, 0, 0) - off * 60000 + minutes * 60000;
+  let matched = false;
+  for (let k = 0; k < 4; k++) {
+    const wall = localWall(timezone, target);
+    const sameDate = wall.year === year && wall.month === month && wall.day === day;
+    const diff = minutes - (wall.hour * 60 + wall.minute);
+    if (sameDate && diff === 0) {
+      matched = true;
+      break;
+    }
+    target += diff * 60000;
+  }
+  if (!matched) return { ok: false, gap: true, ambiguous: false };
+
+  // Ambiguity check: outside an explicit offset override, a wall time that
+  // exists under two different offsets (fall-back repeat) is ambiguous.
+  if (offsetOverrideMinutes == null) {
+    const offsetCandidate = (ms) => {
+      const alt = localOffsetMinutes(timezone, target + ms);
+      const candidate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) - alt * 60000 + minutes * 60000);
+      const w = localWall(timezone, candidate.getTime());
+      const same = w.year === year && w.month === month && w.day === day && w.hour * 60 + w.minute === minutes;
+      return { same, candidate };
+    };
+    const before = offsetCandidate(-3600000);
+    const after = offsetCandidate(3600000);
+    if (before.same && after.same && before.candidate.getTime() !== after.candidate.getTime()) {
+      return { ok: false, gap: false, ambiguous: true };
+    }
+  }
+  const finalOff = offsetOverrideMinutes != null ? offsetOverrideMinutes : localOffsetMinutes(timezone, target);
+  return { ok: true, utcISO: new Date(target).toISOString(), offsetMinutes: finalOff };
 }
 
 // Recurring daily window: start-inclusive, end-exclusive. Overnight windows

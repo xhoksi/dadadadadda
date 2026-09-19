@@ -313,3 +313,35 @@ h2.h2 {
 .ask-status[data-tone="success"] {
   color: #7ad8a6;
 }
+.capsule-sealed {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 18px 0;
+}
+
+.capsule-wax {
+  margin: 0;
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 30%, #e05862, var(--crimson));
+  color: #fff;
+  font-size: 24px;
+  box-shadow: 0 0 0 4px rgba(194, 43, 53, 0.18);
+}
+
+.capsule-count {
+  margin: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.capsule-body {
+  margin: 0;
+  font-size: 18px;
+  white-space: pre-wrap;
+}

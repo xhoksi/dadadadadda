@@ -2,6 +2,8 @@
 // tier mapping, defaults, limits and validated configurable fields.
 // "alive" child widgets are real registry entries with a parentKey.
 
+import { parseHHMM, parseOffset, resolveWall } from "./schedule.js";
+
 export const TIERS = {
   free: "free",
   lifetime: "lifetime",
@@ -83,15 +85,40 @@ export const FEATURES = [
   },
   {
     key: "time_capsule", name: "Time capsule", category: "scheduled", tier: TIERS.lifetime,
-    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: true,
+    eligiblePlans: ["lifetime"], defaultEnabled: false, requiresConfig: true, widget: false,
     limits: LIMITS.time_capsule,
     description: "A message held on the server and revealed on a chosen date.",
+    validate: (v) => {
+      const errs = {};
+      if (!v || !v.releaseDate) return null;
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v.releaseDate));
+      if (!m) {
+        errs.releaseDate = "Use a real date as YYYY-MM-DD.";
+        return errs;
+      }
+      const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+      if (dt.getUTCFullYear() !== Number(m[1]) || dt.getUTCMonth() + 1 !== Number(m[2]) || dt.getUTCDate() !== Number(m[3])) {
+        errs.releaseDate = "Not a real date.";
+        return errs;
+      }
+      const minutes = parseHHMM(v.releaseTime || "");
+      const override = parseOffset(v.releaseOffset || "");
+      if (minutes === null) {
+        errs.releaseTime = "Use a valid HH:MM.";
+      } else {
+        const resolved = resolveWall(v.timezone || "UTC", { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) }, minutes, override);
+        if (resolved.gap) errs.releaseTime = "That wall clock never occurs on this date in the chosen timezone (DST gap).";
+        else if (resolved.ambiguous) errs.releaseOffset = "That wall clock occurs twice (DST repeat); add an explicit offset like +02:00 or +01:00.";
+      }
+      return Object.keys(errs).length ? errs : null;
+    },
     fields: {
       label: field({ type: "string", default: "", max: 120 }),
       body: field({ type: "string", default: "", max: 5000 }),
       releaseDate: field({ type: "string", default: "", required: true }),
       releaseTime: field({ type: "string", default: "00:00", pattern: "^([01]\\d|2[0-3]):[0-5]\\d$" }),
       timezone: field({ type: "string", default: "UTC", required: true }),
+      releaseOffset: field({ type: "string", default: "", pattern: "^([+-])([01]\\d|2[0-3]):[0-5]\\d$" }),
     },
   },
   {

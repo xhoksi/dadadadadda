@@ -21,6 +21,7 @@ import {
 } from "./auth.js";
 import * as ask from "./content/ask_anything.js";
 import * as draw from "./content/daily_draw.js";
+import * as capsule from "./content/time_capsule.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -178,6 +179,7 @@ function publicFeatures(store, page, now) {
     card: flipCard(store, page, now),
     night: nightState(store, page, now),
     draw: draw.publicView(store, page, now),
+    capsule: capsule.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -255,7 +257,7 @@ export function createApp() {
       config: { draft: pf.draft, published: pf.published },
       fields: def.fields,
       version: pf.version,
-      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : null,
+      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : null,
     });
   });
 
@@ -326,6 +328,15 @@ export function createApp() {
       return res.status(422).json({ message: "Draft does not validate. Nothing was published.", errors: result.errors });
     }
     const before = structuredClone(pf);
+    if (def.key === "time_capsule") {
+      const resolved = capsule.resolveReleaseUtc(result.value, page);
+      if (!resolved) {
+        return res.status(422).json({ message: "Could not resolve a release time from these settings.", errors: { releaseTime: "Could not resolve this date, time and timezone." } });
+      }
+      if (pf.published && pf.openedAt && resolved !== capsule.resolveReleaseUtc(pf.published, page)) {
+        return res.status(409).json({ message: "A released capsule can't be re-sealed. Keep the same release time or leave this draft unpublished." });
+      }
+    }
     if (def.key === "daily_draw") {
       const drew = draw.publishDeck(store, page, result.value, now());
       if (!drew.ok) return res.status(drew.status).json(drew);
@@ -376,6 +387,34 @@ export function createApp() {
     });
     saveStore();
     res.json({ ...result, state: draw.scheduleState(store, page, now()) });
+  });
+
+  app.post("/api/me/pages/:id/features/time_capsule/unpublish", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const pf = ensurePageFeature(store, page.id, "time_capsule");
+    const before = structuredClone(pf);
+    pf.published = null;
+    pf.version += 1;
+    pf.updatedAt = now();
+    reportAudit(store, {
+      actor: req.user.id,
+      scope: "page",
+      feature: "time_capsule",
+      action: "owner.unpublish",
+      before: { version: before.version },
+      after: { version: pf.version },
+      reason: (req.body && req.body.reason) || "",
+    });
+    saveStore();
+    res.json({
+      ...featureCard(store, page.id, "time_capsule", now()),
+      version: pf.version,
+      state: capsule.capsuleState(store, page, now()),
+      message: "Capsule unpublished. Future reads are hidden; a message already seen cannot be undone.",
+    });
   });
 
   app.patch("/api/me/pages/:id/profile", requireAuth, (req, res) => {
@@ -563,6 +602,20 @@ export function createApp() {
     if (!result.ok) return res.status(result.status).json(result);
     saveStore();
     res.status(201).json({ id: result.record.id, submittedAt: result.record.submittedAt, note: result.note });
+  });
+
+  // ---------- public: time capsule ----------
+  app.get("/api/pages/:slug/capsule", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const before = store.pageFeatures[`${page.id}:time_capsule`];
+    const openedBefore = before && before.openedAt;
+    const view = capsule.publicView(store, page, now());
+    if (!view) return res.status(404).json({ message: "Not available." });
+    if (!openedBefore && before && before.openedAt) saveStore();
+    res.setHeader("Cache-Control", "no-store");
+    res.json(view);
   });
 
   // ---------- admin: feature catalogue ----------

@@ -11,6 +11,11 @@ const el = {
   moonWrap: document.getElementById("moon-wrap"),
   drawCard: document.getElementById("draw-card"),
   drawLine: document.getElementById("draw-line"),
+  capsuleCard: document.getElementById("capsule-card"),
+  capsuleLabel: document.getElementById("capsule-label"),
+  capsuleSealed: document.getElementById("capsule-sealed"),
+  capsuleCount: document.getElementById("capsule-count"),
+  capsuleBody: document.getElementById("capsule-body"),
 };
 
 const faces = {
@@ -84,6 +89,76 @@ function renderDraw(data) {
   el.drawCard.hidden = false;
   el.drawLine.textContent = d.cards[idx];
   el.drawLine.classList.toggle("hand", d.style !== "type");
+}
+
+let capsuleTick = null;
+let capsulePoll = null;
+
+function formatCountdown(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const d = Math.floor(total / 86400);
+  const h = Math.floor((total % 86400) / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d}d ${pad(h)}h ${pad(m)}m ${pad(s)}s`;
+}
+
+function startCountdown(releaseAt, serverNow) {
+  if (capsuleTick) clearInterval(capsuleTick);
+  const skew = Date.parse(serverNow) - Date.now();
+  const tick = () => {
+    const left = Date.parse(releaseAt) - (Date.now() + skew);
+    if (left <= 0) {
+      el.capsuleCount.textContent = "Opening…";
+      clearInterval(capsuleTick);
+      capsuleTick = null;
+      return;
+    }
+    el.capsuleCount.textContent = `Opens in ${formatCountdown(left)}`;
+  };
+  tick();
+  capsuleTick = setInterval(tick, 1000);
+}
+
+async function loadCapsule() {
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/capsule`, { headers: { Accept: "application/json" } });
+    if (!res.ok) {
+      el.capsuleCard.hidden = true;
+      return;
+    }
+    const c = await res.json();
+    el.capsuleCard.hidden = false;
+    el.capsuleLabel.textContent = c.label || "A sealed message";
+    if (c.state === "open") {
+      if (capsuleTick) clearInterval(capsuleTick);
+      if (capsulePoll) clearTimeout(capsulePoll);
+      capsuleTick = null;
+      capsulePoll = null;
+      el.capsuleSealed.hidden = true;
+      el.capsuleBody.hidden = false;
+      el.capsuleBody.textContent = c.body || "";
+      return;
+    }
+    // Sealed: the countdown is cosmetic; only the server decides when to open.
+    el.capsuleSealed.hidden = false;
+    el.capsuleBody.hidden = true;
+    startCountdown(c.releaseAt, c.serverNow);
+    if (capsulePoll) clearTimeout(capsulePoll);
+    capsulePoll = setTimeout(loadCapsule, 20000);
+  } catch {}
+}
+
+function renderCapsule(data) {
+  const enabled = data.features.some((f) => f.key === "time_capsule");
+  if (!enabled) {
+    el.capsuleCard.hidden = true;
+    if (capsuleTick) clearInterval(capsuleTick);
+    if (capsulePoll) clearTimeout(capsulePoll);
+    return;
+  }
+  loadCapsule();
 }
 
 function renderSymbol(data) {
@@ -168,6 +243,7 @@ async function load() {
 
     renderSymbol(data);
     renderDraw(data);
+    renderCapsule(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();
