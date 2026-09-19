@@ -64,6 +64,7 @@ function seed() {
     askAnything: [],
     placements: {},
     drawSchedules: {},
+    pageArchive: {},
     audit: [
       {
         id: newId("audit"),
@@ -88,6 +89,7 @@ function load() {
     if (!Array.isArray(store.askAnything)) store.askAnything = [];
     if (!store.placements || typeof store.placements !== "object") store.placements = {};
     if (!store.drawSchedules || typeof store.drawSchedules !== "object") store.drawSchedules = {};
+    if (!store.pageArchive || typeof store.pageArchive !== "object") store.pageArchive = {};
   } catch {
     store = seed();
     persist();

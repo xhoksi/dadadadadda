@@ -16,6 +16,9 @@ const el = {
   capsuleSealed: document.getElementById("capsule-sealed"),
   capsuleCount: document.getElementById("capsule-count"),
   capsuleBody: document.getElementById("capsule-body"),
+  historyCard: document.getElementById("history-card"),
+  historySelect: document.getElementById("history-select"),
+  historyView: document.getElementById("history-view"),
 };
 
 const faces = {
@@ -161,6 +164,70 @@ function renderCapsule(data) {
   loadCapsule();
 }
 
+async function loadHistoryEntry(revs, rid) {
+  el.historyView.textContent = "";
+  let snap;
+  if (!rid) {
+    const fresh = await (await fetch(`/api/pages/${encodeURIComponent(slug)}`, { headers: { Accept: "application/json" } })).json();
+    snap = { profile: fresh.profile, features: fresh.features, historical: false, label: "Today" };
+  } else {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/history/${encodeURIComponent(rid)}`, { headers: { Accept: "application/json" } });
+    if (!res.ok) return;
+    snap = await res.json();
+  }
+  const note = document.createElement("p");
+  note.className = "history-note";
+  note.textContent = snap.historical ? `Historical version · ${snap.label}` : "Current version";
+  el.historyView.appendChild(note);
+  const name = document.createElement("p");
+  name.className = "history-name";
+  name.textContent = snap.profile.displayName || "";
+  el.historyView.appendChild(name);
+  const bio = document.createElement("p");
+  bio.className = "history-bio";
+  bio.textContent = snap.profile.bio || "";
+  el.historyView.appendChild(bio);
+  const ul = document.createElement("ul");
+  ul.className = "feature-labels";
+  for (const f of snap.features) {
+    if (f.parentKey) continue;
+    const li = document.createElement("li");
+    li.textContent = FEATURE_ITEM_LABEL[f.key] || f.name;
+    ul.appendChild(li);
+  }
+  el.historyView.appendChild(ul);
+}
+
+async function renderHistory(data) {
+  const enabled = data.features.some((f) => f.key === "archive");
+  if (!enabled) {
+    el.historyCard.hidden = true;
+    return;
+  }
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/history`, { headers: { Accept: "application/json" } });
+    if (!res.ok) {
+      el.historyCard.hidden = true;
+      return;
+    }
+    const history = await res.json();
+    el.historyCard.hidden = false;
+    el.historySelect.textContent = "";
+    const make = (val, label) => {
+      const o = document.createElement("option");
+      o.value = val;
+      o.textContent = label;
+      return o;
+    };
+    el.historySelect.appendChild(make("", "Current"));
+    for (const r of history.revisions) el.historySelect.appendChild(make(r.id, r.label));
+    el.historySelect.onchange = () => loadHistoryEntry(history.revisions, el.historySelect.value);
+    loadHistoryEntry(history.revisions, "");
+  } catch {
+    el.historyCard.hidden = true;
+  }
+}
+
 function renderSymbol(data) {
   el.moonWrap.textContent = "";
   if (data.features.some((f) => f.key === "moon")) {
@@ -244,6 +311,7 @@ async function load() {
     renderSymbol(data);
     renderDraw(data);
     renderCapsule(data);
+    renderHistory(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();

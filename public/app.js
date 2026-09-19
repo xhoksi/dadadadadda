@@ -14,6 +14,9 @@ const blocksManager = document.getElementById("blocks-manager");
 const drawCard = document.getElementById("draw-card");
 const drawCardSub = document.getElementById("draw-card-sub");
 const drawManager = document.getElementById("draw-manager");
+const archiveCard = document.getElementById("archive-card");
+const archiveCardSub = document.getElementById("archive-card-sub");
+const archiveManager = document.getElementById("archive-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -222,6 +225,10 @@ async function loadFeatures() {
   const hasDraw = featureState.has("daily_draw");
   drawCard.hidden = !hasDraw;
   if (hasDraw) loadDraw();
+
+  const hasArchive = featureState.has("archive");
+  archiveCard.hidden = !hasArchive;
+  if (hasArchive) loadArchive();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -842,6 +849,98 @@ drawManager.addEventListener("click", (e) => {
       drawCardSub.textContent = res.ok ? (data.message || "Cancelled.") : (data.message || "Could not cancel.");
       if (res.ok) loadDraw();
     });
+});
+
+// ---------- archive manager ----------
+function archiveRow(rev) {
+  const row = document.createElement("div");
+  row.className = "archive-row";
+  const meta = document.createElement("div");
+  const when = document.createElement("p");
+  when.className = "archive-time";
+  when.textContent = new Date(rev.time).toLocaleString() + (rev.reason ? ` · ${rev.reason}` : "");
+  const preview = document.createElement("p");
+  preview.className = "archive-preview";
+  preview.textContent = rev.profile ? `${rev.profile.displayName || "—"} — ${rev.profile.bio || ""}` : "";
+  meta.appendChild(when);
+  meta.appendChild(preview);
+  const acts = document.createElement("div");
+  acts.className = "cfg-actions";
+  const restore = document.createElement("button");
+  restore.type = "button";
+  restore.textContent = "Restore";
+  restore.dataset.act = "archive-restore";
+  restore.dataset.rid = rev.id;
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "config-btn";
+  del.textContent = "Delete";
+  del.dataset.act = "archive-delete";
+  del.dataset.rid = rev.id;
+  acts.appendChild(restore);
+  acts.appendChild(del);
+  row.appendChild(meta);
+  row.appendChild(acts);
+  return row;
+}
+
+async function loadArchive() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/archive`);
+  if (!res.ok) {
+    archiveCardSub.textContent = data.message || "Could not load the archive.";
+    return;
+  }
+  archiveCardSub.textContent =
+    `${data.revisions.length} previous version(s) kept. Private capture is ${data.captureAllowed ? "on" : "paused"}. ` +
+    `Public browsing is ${data.publicBrowsing ? "on" : "off"} (change it in the archive settings). ` +
+    "Autosaved drafts are not revisions.";
+  archiveManager.textContent = "";
+  if (data.current) {
+    const h = document.createElement("h3");
+    h.className = "ask-group";
+    h.textContent = "Current";
+    archiveManager.appendChild(h);
+    archiveManager.appendChild(archiveRow(data.current));
+  }
+  const h2 = document.createElement("h3");
+  h2.className = "ask-group";
+  h2.textContent = "Previous versions";
+  archiveManager.appendChild(h2);
+  if (data.revisions.length === 0) {
+    const p = document.createElement("p");
+    p.className = "ask-none";
+    p.textContent = "No previous versions yet.";
+    archiveManager.appendChild(p);
+    return;
+  }
+  for (const rev of data.revisions) archiveManager.appendChild(archiveRow(rev));
+}
+
+archiveManager.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const rid = btn.dataset.rid;
+  if (btn.dataset.act === "archive-delete") {
+    const { res, data } = await api(`/api/me/pages/${currentPage.id}/archive/${rid}`, { method: "DELETE" });
+    archiveCardSub.textContent = res.ok ? "Revision deleted." : data.message || "Could not delete.";
+    if (res.ok) loadArchive();
+    return;
+  }
+  if (btn.dataset.act === "archive-restore") {
+    let body = {};
+    let { res, data } = await api(`/api/me/pages/${currentPage.id}/archive/${rid}/restore`, { method: "POST", body });
+    if (res.status === 409 && data.requiresAcknowledgement) {
+      const names = data.requiresAcknowledgement.map((s) => s.name).join(", ");
+      if (!window.confirm(`Restoring would switch these features back on: ${names}. Continue?`)) return;
+      body = { acknowledgeFeatureSwitches: true };
+      ({ res, data } = await api(`/api/me/pages/${currentPage.id}/archive/${rid}/restore`, { method: "POST", body }));
+    }
+    archiveCardSub.textContent = res.ok ? `Restored ${rid}. The pre-restore version is kept.` : data.message || "Could not restore.";
+    if (res.ok) {
+      await loadProfile();
+      await loadFeatures();
+    }
+  }
 });
 
 async function loadProfile() {

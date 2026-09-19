@@ -22,6 +22,7 @@ import {
 import * as ask from "./content/ask_anything.js";
 import * as draw from "./content/daily_draw.js";
 import * as capsule from "./content/time_capsule.js";
+import * as archive from "./content/archive.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -302,6 +303,7 @@ export function createApp() {
         after: { ownerEnabled: pf.ownerEnabled, version: pf.version },
         reason: (req.body && req.body.reason) || "",
       });
+      if (req.body.ownerEnabled !== undefined) archive.capture(store, page, req.user.id, now(), `feature switch ${def.key}`);
       saveStore();
     }
     res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: "Saved. The switch is live policy; content stays a draft until published." });
@@ -350,6 +352,7 @@ export function createApp() {
         after: { applied: drew.applied, version: pf.version },
         reason: (req.body && req.body.reason) || "",
       });
+      archive.capture(store, page, req.user.id, now(), `publish ${def.key}`);
       saveStore();
       return res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: drew.message });
     }
@@ -365,6 +368,7 @@ export function createApp() {
       after: { version: pf.version },
       reason: (req.body && req.body.reason) || "",
     });
+    archive.capture(store, page, req.user.id, now(), `publish ${def.key}`);
     saveStore();
     res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: "Published. Drafts never enter public output; published state is now live content." });
   });
@@ -408,6 +412,7 @@ export function createApp() {
       after: { version: pf.version },
       reason: (req.body && req.body.reason) || "",
     });
+    archive.capture(store, page, req.user.id, now(), "unpublish time_capsule");
     saveStore();
     res.json({
       ...featureCard(store, page.id, "time_capsule", now()),
@@ -415,6 +420,62 @@ export function createApp() {
       state: capsule.capsuleState(store, page, now()),
       message: "Capsule unpublished. Future reads are hidden; a message already seen cannot be undone.",
     });
+  });
+
+  // ---------- owner: archive ----------
+  function ownerArchiveCtx(req, res, needPage = true) {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) {
+      res.status(404).json({ message: "Page not found." });
+      return null;
+    }
+    if (!isOwnerOrAdmin(req.user, page)) {
+      res.status(403).json({ message: "Not your page." });
+      return null;
+    }
+    return { store, page };
+  }
+
+  app.get("/api/me/pages/:id/archive", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    res.json({ ...archive.list(ctx.store, ctx.page), captureAllowed: archive.captureAllowed(ctx.store, ctx.page, now()) });
+  });
+
+  app.get("/api/me/pages/:id/archive/:rid", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    const rev = archive.getRevision(ctx.store, ctx.page, req.params.rid);
+    if (!rev) return res.status(404).json({ message: "Revision not found." });
+    res.json(rev);
+  });
+
+  app.post("/api/me/pages/:id/archive/:rid/restore", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    const result = archive.restore(ctx.store, ctx.page, req.params.rid, req.user.id, now(), req.body || {});
+    if (!result.ok) return res.status(result.status).json(result);
+    reportAudit(ctx.store, {
+      actor: req.user.id,
+      scope: "page",
+      feature: "archive",
+      action: "owner.restore",
+      before: {},
+      after: { restored: result.restored, archivedPreRestore: result.archivedPreRestore },
+      reason: (req.body && req.body.reason) || "",
+    });
+    saveStore();
+    res.json({ ...result, archive: archive.list(ctx.store, ctx.page) });
+  });
+
+  app.delete("/api/me/pages/:id/archive/:rid", requireAuth, (req, res) => {
+    const ctx = ownerArchiveCtx(req, res);
+    if (!ctx) return;
+    const result = archive.remove(ctx.store, ctx.page, req.params.rid);
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, archive: archive.list(ctx.store, ctx.page) });
   });
 
   app.patch("/api/me/pages/:id/profile", requireAuth, (req, res) => {
@@ -429,6 +490,7 @@ export function createApp() {
     const before = structuredClone(page.profile);
     page.profile = result.value;
     reportAudit(store, { actor: req.user.id, scope: "page", feature: "profile", action: "owner.update", before, after: structuredClone(page.profile), reason: "" });
+    archive.capture(store, page, req.user.id, now(), "profile");
     saveStore();
     res.json(pageProfile(store, page.id));
   });
@@ -564,6 +626,7 @@ export function createApp() {
       after: { blocks: store.placements[page.id] },
       reason: "",
     });
+    archive.capture(store, page, req.user.id, now(), "block layout");
     saveStore();
     res.json({ ...result, blocks: pageBlocks(store, page, now()) });
   });
@@ -614,6 +677,27 @@ export function createApp() {
     const view = capsule.publicView(store, page, now());
     if (!view) return res.status(404).json({ message: "Not available." });
     if (!openedBefore && before && before.openedAt) saveStore();
+    res.setHeader("Cache-Control", "no-store");
+    res.json(view);
+  });
+
+  // ---------- public: archive history ----------
+  app.get("/api/pages/:slug/history", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const view = archive.publicList(store, page, now());
+    if (!view) return res.status(404).json({ message: "Not available." });
+    res.setHeader("Cache-Control", "no-store");
+    res.json(view);
+  });
+
+  app.get("/api/pages/:slug/history/:rid", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const view = archive.publicGet(store, page, req.params.rid, now());
+    if (!view) return res.status(404).json({ message: "Not available." });
     res.setHeader("Cache-Control", "no-store");
     res.json(view);
   });
