@@ -62,6 +62,7 @@ function seed() {
     pageFeatures,
     grants: [],
     askAnything: [],
+    guestbook: [],
     placements: {},
     drawSchedules: {},
     pageArchive: {},
@@ -87,6 +88,7 @@ function load() {
     const raw = fs.readFileSync(dataFile, "utf8");
     store = JSON.parse(raw);
     if (!Array.isArray(store.askAnything)) store.askAnything = [];
+    if (!Array.isArray(store.guestbook)) store.guestbook = [];
     if (!store.placements || typeof store.placements !== "object") store.placements = {};
     if (!store.drawSchedules || typeof store.drawSchedules !== "object") store.drawSchedules = {};
     if (!store.pageArchive || typeof store.pageArchive !== "object") store.pageArchive = {};

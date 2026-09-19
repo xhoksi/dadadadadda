@@ -15,7 +15,7 @@ const LIMITS = {
   daily_draw: { cardsMax: 12, cardMaxChars: 160 },
   time_capsule: { bodyMax: 5000, activeMax: 1 },
   archive: { revisionsMax: 12 },
-  guestbook: { nameMax: 40, messageMax: 200, visibleMax: 20 },
+  guestbook: { nameMax: 40, messageMax: 200, visibleMax: 20, rateWindowMs: 600000, rateMax: 30, queueMax: 500 },
   neighbours: { slotsMax: 5 },
   chalkboard: { strokesMax: 100, pointsMax: 10000, payloadKB: 100, pendingMax: 100, keptMax: 50, pinnedMax: 3 },
   tally: { questionMax: 200, optionMax: 80, optionsMin: 2, optionsMax: 4 },

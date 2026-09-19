@@ -821,3 +821,46 @@ a.preview-anchor:hover {
   margin: 0;
 }
 
+
+/* guestbook owner queue */
+.gb-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.gb-tab {
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.gb-tab.active {
+  background: var(--ink, #1b1b22);
+  color: var(--paper, #fff);
+}
+
+.gb-name {
+  font-weight: 700;
+}
+
+.gb-message {
+  margin: 6px 0 4px;
+}
+
+.gb-pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.gb-page-info {
+  font-size: 13px;
+  color: var(--muted);
+}

@@ -24,6 +24,7 @@ import * as draw from "./content/daily_draw.js";
 import * as capsule from "./content/time_capsule.js";
 import * as archive from "./content/archive.js";
 import * as moon from "./content/moon.js";
+import * as guestbook from "./content/guestbook.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -183,6 +184,7 @@ function publicFeatures(store, page, now) {
     draw: draw.publicView(store, page, now),
     capsule: capsule.publicView(store, page, now),
     moon: moon.publicView(store, page, now),
+    guestbook: guestbook.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -260,7 +262,7 @@ export function createApp() {
       config: { draft: pf.draft, published: pf.published },
       fields: def.fields,
       version: pf.version,
-      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : null,
+      state: def.key === "night_shift" ? nightState(store, page, now()) : def.key === "daily_draw" ? draw.scheduleState(store, page, now()) : def.key === "time_capsule" ? capsule.capsuleState(store, page, now()) : def.key === "guestbook" ? { counts: guestbook.inbox(store, page.id).counts } : null,
     });
   });
 
@@ -592,6 +594,50 @@ export function createApp() {
     res.json(result);
   });
 
+  // ---------- owner: guestbook moderation ----------
+  function ownerGuestbookCtx(req, res) {
+    return ownerAskCtx(req, res);
+  }
+
+  app.get("/api/me/pages/:id/features/guestbook/inbox", requireAuth, (req, res) => {
+    const ctx = ownerGuestbookCtx(req, res);
+    if (!ctx) return;
+    res.json({
+      feature: "guestbook",
+      pageId: ctx.page.id,
+      config: guestbook.publishedConfig(ctx.store, ctx.page.id),
+      intakeOpen: guestbook.intakeOpen(ctx.store, ctx.page, now()),
+      ...guestbook.inbox(ctx.store, ctx.page.id, { status: req.query.status, page: req.query.page, pageSize: req.query.pageSize }),
+    });
+  });
+
+  app.post("/api/me/pages/:id/features/guestbook/records/:recordId/:action", requireAuth, (req, res) => {
+    const ctx = ownerGuestbookCtx(req, res);
+    if (!ctx) return;
+    const result = guestbook.moderate(ctx.store, ctx.page, req.params.recordId, req.params.action, req.body || {}, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, inbox: guestbook.inbox(ctx.store, ctx.page.id, {}) });
+  });
+
+  app.delete("/api/me/pages/:id/features/guestbook/records/:recordId", requireAuth, (req, res) => {
+    const ctx = ownerGuestbookCtx(req, res);
+    if (!ctx) return;
+    const result = guestbook.deleteEntry(ctx.store, ctx.page, req.params.recordId, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json({ ...result, inbox: guestbook.inbox(ctx.store, ctx.page.id, {}) });
+  });
+
+  app.post("/api/me/pages/:id/features/guestbook/reorder", requireAuth, (req, res) => {
+    const ctx = ownerGuestbookCtx(req, res);
+    if (!ctx) return;
+    const result = guestbook.reorder(ctx.store, ctx.page, req.body && req.body.order, now());
+    if (!result.ok) return res.status(result.status).json(result);
+    saveStore();
+    res.json(result);
+  });
+
   // ---------- owner: block layout (front/back placement) ----------
   app.get("/api/me/pages/:id/blocks", requireAuth, (req, res) => {
     const store = getStore();
@@ -667,6 +713,42 @@ export function createApp() {
     if (!result.ok) return res.status(result.status).json(result);
     saveStore();
     res.status(201).json({ id: result.record.id, submittedAt: result.record.submittedAt, note: result.note });
+  });
+
+  // ---------- public: guestbook ----------
+  app.get("/api/pages/:slug/guestbook", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const view = guestbook.publicView(store, page, now(), { page: req.query.page, pageSize: req.query.pageSize });
+    if (!view) return res.status(404).json({ message: "Not available." });
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ pageId: page.id, ...view });
+  });
+
+  app.get("/api/pages/:slug/guestbook/:entryId", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const entry = guestbook.publicEntry(store, page, req.params.entryId, now());
+    if (!entry) return res.status(404).json({ message: "Not found." });
+    res.setHeader("Cache-Control", "no-store");
+    res.json(entry);
+  });
+
+  app.post("/api/pages/:slug/guestbook", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const forwarded = (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim();
+    const ip = forwarded || req.socket?.remoteAddress || "local";
+    const result = guestbook.submitEntry(store, page, req.body, ip, now());
+    if (!result.ok) {
+      if (result.retryAfterSec) res.setHeader("Retry-After", String(result.retryAfterSec));
+      return res.status(result.status).json(result);
+    }
+    saveStore();
+    res.status(201).json({ id: result.record.id, status: result.record.status, submittedAt: result.record.submittedAt, note: result.note });
   });
 
   // ---------- public: time capsule ----------
@@ -921,12 +1003,18 @@ export function createApp() {
     res.json({ content: ask.adminContent(getStore()) });
   });
 
+  app.get("/api/admin/features/guestbook/content", requireRole("platform_admin"), (req, res) => {
+    res.json({ content: guestbook.adminContent(getStore()) });
+  });
+
   app.post("/api/admin/features/:key/content/:recordId/action", requireRole("platform_admin", "moderator"), (req, res) => {
     const store = getStore();
     const def = getFeature(req.params.key);
-    if (!def || def.key !== "ask_anything") return res.status(404).json({ message: "Unknown feature." });
+    if (!def || (def.key !== "ask_anything" && def.key !== "guestbook")) return res.status(404).json({ message: "Unknown feature." });
     const body = req.body || {};
-    const result = ask.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now());
+    const result = def.key === "guestbook"
+      ? guestbook.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now())
+      : ask.adminAction(store, req.params.recordId, body.action, req.user.id, body.reason, now());
     if (!result.ok) return res.status(result.status).json(result);
     saveStore();
     res.json(result);
@@ -941,6 +1029,7 @@ export function createApp() {
   // ---------- dev helper: reset demo data ----------
   app.post("/api/dev/reset", (_req, res) => {
     ask.resetIntakeRate();
+    guestbook.resetIntakeRate();
     resetStore();
     saveStore();
     res.json({ ok: true });

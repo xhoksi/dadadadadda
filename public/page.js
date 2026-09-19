@@ -19,6 +19,15 @@ const el = {
   historyCard: document.getElementById("history-card"),
   historySelect: document.getElementById("history-select"),
   historyView: document.getElementById("history-view"),
+  guestbook: document.getElementById("guestbook"),
+  guestbookHeading: document.getElementById("guestbook-heading"),
+  guestbookPrompt: document.getElementById("guestbook-prompt"),
+  guestbookEntries: document.getElementById("guestbook-entries"),
+  guestbookForm: document.getElementById("guestbook-form"),
+  guestbookName: document.getElementById("guestbook-name"),
+  guestbookMessage: document.getElementById("guestbook-message"),
+  guestbookStatus: document.getElementById("guestbook-status"),
+  guestbookSubmit: document.getElementById("guestbook-submit"),
 };
 
 const faces = {
@@ -262,6 +271,75 @@ function renderMoon(data) {
   el.moonWrap.appendChild(wrap);
 }
 
+function renderGuestbook(data) {
+  const gb = data.guestbook;
+  if (!gb) {
+    el.guestbook.hidden = true;
+    return;
+  }
+  el.guestbook.hidden = false;
+  el.guestbookHeading.textContent = gb.config.heading || "Guestbook";
+  el.guestbookPrompt.textContent = gb.config.prompt || "";
+  el.guestbookForm.hidden = !gb.acceptNew;
+  el.guestbookName.maxLength = gb.config.nameMax || 40;
+  el.guestbookMessage.maxLength = gb.config.messageMax || 200;
+  el.guestbookEntries.textContent = "";
+  if (gb.entries.length === 0) {
+    const none = document.createElement("p");
+    none.className = "guest-none";
+    none.textContent = "No approved entries yet.";
+    el.guestbookEntries.appendChild(none);
+  }
+  for (const entry of gb.entries) {
+    const box = document.createElement("div");
+    box.className = "guest-entry";
+    const name = document.createElement("p");
+    name.className = "guest-name";
+    name.textContent = entry.pinned ? `★ ${entry.displayName}` : entry.displayName;
+    const message = document.createElement("p");
+    message.className = `guest-message ${gb.config.handwriting === "handwritten" ? "hand" : "type"}`;
+    message.textContent = entry.message;
+    box.appendChild(name);
+    box.appendChild(message);
+    el.guestbookEntries.appendChild(box);
+  }
+}
+
+function setGuestbookStatus(text, tone) {
+  el.guestbookStatus.textContent = text;
+  el.guestbookStatus.hidden = !text;
+  el.guestbookStatus.dataset.tone = tone || "";
+}
+
+el.guestbookForm.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const displayName = el.guestbookName.value.trim();
+  const message = el.guestbookMessage.value.trim();
+  if (!displayName || !message) return;
+  setGuestbookStatus("Signing…", "pending");
+  el.guestbookSubmit.disabled = true;
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/guestbook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName, message }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const first = data.errors ? Object.values(data.errors)[0] : null;
+      setGuestbookStatus(first || data.message || "Your entry could not be saved.", "error");
+      return;
+    }
+    el.guestbookName.value = "";
+    el.guestbookMessage.value = "";
+    setGuestbookStatus(data.note, "success");
+  } catch {
+    setGuestbookStatus("Could not reach the server. Try again later.", "error");
+  } finally {
+    el.guestbookSubmit.disabled = false;
+  }
+});
+
 async function load() {
   try {
     const res = await fetch(`/api/pages/${encodeURIComponent(slug)}`, { headers: { Accept: "application/json" } });
@@ -336,6 +414,7 @@ async function load() {
     renderDraw(data);
     renderCapsule(data);
     renderHistory(data);
+    renderGuestbook(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();

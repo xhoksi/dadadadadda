@@ -419,3 +419,40 @@ h2.h2 {
   margin: 4px 0 10px;
   color: var(--muted);
 }
+
+.guest-entry {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--border) 12%, transparent);
+}
+
+.guest-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.guest-message {
+  margin: 4px 0 0;
+}
+
+.guest-none {
+  color: var(--muted);
+}
+
+#guestbook-form {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#guestbook-form input,
+#guestbook-form textarea {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}

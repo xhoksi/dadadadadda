@@ -52,6 +52,17 @@
         <h2 class="h2">On this page</h2>
         <ul id="feature-labels" class="feature-labels"></ul>
       </section>
+      <section class="m-card" id="guestbook" aria-label="Guestbook" hidden>
+        <h2 class="h2" id="guestbook-heading">Guestbook</h2>
+        <p id="guestbook-prompt" class="ask-prompt"></p>
+        <div id="guestbook-entries"></div>
+        <form id="guestbook-form">
+          <input id="guestbook-name" type="text" maxlength="40" placeholder="Your name" aria-label="Your display name" />
+          <textarea id="guestbook-message" rows="3" maxlength="200" placeholder="Write a short message…" aria-label="Your message"></textarea>
+          <p id="guestbook-status" class="ask-status" hidden></p>
+          <button type="submit" id="guestbook-submit">Sign</button>
+        </form>
+      </section>
       <section class="m-card" id="ask-anything" aria-label="Ask me anything" hidden>
         <h2 class="h2">Ask me anything</h2>
         <p id="ask-prompt" class="ask-prompt"></p>

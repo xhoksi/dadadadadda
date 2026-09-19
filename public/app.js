@@ -17,6 +17,9 @@ const drawManager = document.getElementById("draw-manager");
 const archiveCard = document.getElementById("archive-card");
 const archiveCardSub = document.getElementById("archive-card-sub");
 const archiveManager = document.getElementById("archive-manager");
+const guestbookCard = document.getElementById("guestbook-card");
+const guestbookCardSub = document.getElementById("guestbook-card-sub");
+const guestbookManager = document.getElementById("guestbook-manager");
 
 const fields = {
   displayName: document.getElementById("display-name"),
@@ -229,6 +232,10 @@ async function loadFeatures() {
   const hasArchive = featureState.has("archive");
   archiveCard.hidden = !hasArchive;
   if (hasArchive) loadArchive();
+
+  const hasGuestbook = featureState.has("guestbook");
+  guestbookCard.hidden = !hasGuestbook;
+  if (hasGuestbook) loadGuestbook();
 }
 
 async function doToggleFeature(key, next, button, f) {
@@ -639,6 +646,147 @@ askManager.addEventListener("click", (e) => {
   else if (act === "move-up") movePublished(btn, -1);
   else if (act === "move-down") movePublished(btn, 1);
   else postAskAction(act, btn);
+});
+
+// ---------- guestbook moderation queue ----------
+let gbFilter = { status: "pending", page: 1 };
+const GB_STATUS_LABEL = { pending: "Pending", approved: "Approved", rejected: "Rejected", removed: "Removed" };
+
+function guestbookRow(rec, kind) {
+  const row = document.createElement("div");
+  row.className = "ask-row gb-row";
+  const head = document.createElement("div");
+  head.className = "ask-row-head";
+  const name = document.createElement("span");
+  name.className = "gb-name";
+  name.textContent = rec.pinned ? `★ ${rec.displayName}` : rec.displayName;
+  const t = document.createElement("span");
+  t.className = "ask-row-time";
+  t.textContent = `signed ${iaTime(rec.submittedAt)}`;
+  head.appendChild(name);
+  head.appendChild(t);
+  row.appendChild(head);
+  const msg = document.createElement("p");
+  msg.className = "gb-message";
+  msg.textContent = rec.message;
+  row.appendChild(msg);
+
+  const ops = document.createElement("div");
+  ops.className = "ask-ops";
+  if (kind === "pending") {
+    ops.appendChild(askCardButton("Approve", "approve", rec.id, rec.version));
+    ops.appendChild(askCardButton("Reject", "reject", rec.id, rec.version));
+  } else if (kind === "approved") {
+    ops.appendChild(askCardButton("Up", "move-up", rec.id));
+    ops.appendChild(askCardButton("Down", "move-down", rec.id));
+    ops.appendChild(askCardButton(rec.pinned ? "Unpin" : "Pin", "pin", rec.id, rec.version));
+    ops.appendChild(askCardButton("Remove", "remove", rec.id, rec.version));
+  } else if (kind === "rejected") {
+    ops.appendChild(askCardButton("Approve", "approve", rec.id, rec.version));
+  } else if (kind === "removed") {
+    ops.appendChild(askCardButton("Approve", "approve", rec.id, rec.version));
+  }
+  ops.appendChild(askCardButton("Delete", "delete", rec.id));
+  row.appendChild(ops);
+  return row;
+}
+
+function renderGuestbookManager(box) {
+  guestbookManager.textContent = "";
+  guestbookCardSub.textContent =
+    `Guestbook on /${currentPage.slug}. ${box.counts.pending} pending, ${box.counts.approved} approved, ${box.counts.rejected} rejected, ${box.counts.removed} removed.`;
+
+  const tabs = document.createElement("div");
+  tabs.className = "gb-tabs";
+  for (const status of ["pending", "approved", "rejected", "removed"]) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = `gb-tab${box.status === status ? " active" : ""}`;
+    tab.textContent = `${GB_STATUS_LABEL[status]} (${box.counts[status]})`;
+    tab.dataset.act = "filter";
+    tab.dataset.status = status;
+    tabs.appendChild(tab);
+  }
+  guestbookManager.appendChild(tabs);
+
+  if (box.entries.length === 0) {
+    const none = document.createElement("p");
+    none.className = "ask-none";
+    none.textContent = "Nothing here.";
+    guestbookManager.appendChild(none);
+  }
+  for (const rec of box.entries) guestbookManager.appendChild(guestbookRow(rec, box.status));
+
+  const pager = document.createElement("div");
+  pager.className = "gb-pager";
+  if (box.page.pages > 1) {
+    const prev = askCardButton("Prev", "page", "");
+    prev.dataset.page = String(Math.max(1, box.page.page - 1));
+    prev.disabled = box.page.page <= 1;
+    const next = askCardButton("Next", "page", "");
+    next.dataset.page = String(Math.min(box.page.pages, box.page.page + 1));
+    next.disabled = box.page.page >= box.page.pages;
+    const info = document.createElement("span");
+    info.className = "gb-page-info";
+    info.textContent = `Page ${box.page.page} of ${box.page.pages}`;
+    pager.appendChild(prev);
+    pager.appendChild(info);
+    pager.appendChild(next);
+  }
+  const refresh = askCardButton("Refresh", "refresh", "");
+  pager.appendChild(refresh);
+  guestbookManager.appendChild(pager);
+}
+
+async function loadGuestbook() {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/guestbook/inbox?status=${gbFilter.status}&page=${gbFilter.page}`);
+  if (!res.ok) {
+    guestbookCardSub.textContent = "Could not load the guestbook queue.";
+    return;
+  }
+  gbFilter.status = data.status;
+  gbFilter.page = data.page.page;
+  renderGuestbookManager(data);
+}
+
+async function gbModerate(act, btn) {
+  const rid = btn.dataset.rid;
+  const version = btn.dataset.version ? Number(btn.dataset.version) : undefined;
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/guestbook/records/${rid}/${act}`, {
+    method: "POST",
+    body: { expectedVersion: version },
+  });
+  guestbookCardSub.textContent = data.message || (res.ok ? "Done." : "Action failed.");
+  if (res.ok) await loadGuestbook();
+}
+
+async function gbMove(btn, delta) {
+  const { res, data } = await api(`/api/me/pages/${currentPage.id}/features/guestbook/inbox?status=approved&pageSize=1000`);
+  if (!res.ok) return;
+  const ids = data.entries.map((r) => r.id);
+  const idx = ids.indexOf(btn.dataset.rid);
+  const swap = idx + delta;
+  if (idx === -1 || swap < 0 || swap >= ids.length) return;
+  [ids[idx], ids[swap]] = [ids[swap], ids[idx]];
+  const out = await api(`/api/me/pages/${currentPage.id}/features/guestbook/reorder`, { method: "POST", body: { order: ids } });
+  guestbookCardSub.textContent = out.data.message || (out.res.ok ? "Order updated." : "Reorder failed.");
+  if (out.res.ok) await loadGuestbook();
+}
+
+guestbookManager.addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const act = btn.dataset.act;
+  if (act === "refresh") loadGuestbook();
+  else if (act === "filter") {
+    gbFilter = { status: btn.dataset.status, page: 1 };
+    loadGuestbook();
+  } else if (act === "page") {
+    gbFilter.page = Number(btn.dataset.page);
+    loadGuestbook();
+  } else if (act === "move-up") gbMove(btn, -1);
+  else if (act === "move-down") gbMove(btn, 1);
+  else gbModerate(act, btn);
 });
 
 // ---------- block layout manager ----------
