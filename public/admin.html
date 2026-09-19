@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>misa.lol — Admin panel</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="admin-body">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="brand">misa.lol <span class="brand-sub">/ admin</span></span>
+        <div class="login-cluster">
+          <label for="demo-user">Demo user</label>
+          <select id="demo-user">
+            <option value="admin" selected>admin (platform admin)</option>
+            <option value="mod">mod (moderator)</option>
+            <option value="nova">nova (owner)</option>
+          </select>
+          <button id="login-button" type="button">Log in</button>
+          <span id="login-status" class="status" role="status" aria-live="polite"></span>
+        </div>
+      </div>
+    </header>
+
+    <main class="admin-main">
+      <nav class="admin-tabs" aria-label="Admin sections">
+        <button data-view="features" class="active">Features</button>
+        <button data-view="users">Users</button>
+        <button data-view="audit">Audit log</button>
+      </nav>
+      <section id="view-features" class="admin-view"></section>
+      <section id="view-users" class="admin-view" hidden></section>
+      <section id="view-audit" class="admin-view" hidden></section>
+      <section id="detail-above" class="admin-view" hidden></section>
+    </main>
+
+    <script src="/admin.js"></script>
+  </body>
+</html>

@@ -1,0 +1,614 @@
+import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { allFeatures, getFeature } from "./registry.js";
+import { getStore, saveStore, newId, resetStore } from "./store.js";
+import {
+  evaluateFeature,
+  validateConfig,
+  pageProfile,
+  REASONS,
+} from "./policy.js";
+import {
+  authMiddleware,
+  requireAuth,
+  requireRole,
+  isOwnerOrAdmin,
+  isAdmin,
+  publicUser,
+  loginByHandle,
+  destroySession,
+} from "./auth.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const LIMITS = {
+  displayName: { min: 1, max: 40 },
+  bio: { min: 0, max: 160 },
+  linkLabel: { min: 1, max: 30 },
+};
+
+function isValidHttpsUrl(raw) {
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" && url.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function validateProfile(body) {
+  const errors = {};
+  const isString = (v) => typeof v === "string";
+  const link = body && typeof body === "object" && body.link;
+
+  const displayName = isString(body && body.displayName) ? body.displayName.trim() : undefined;
+  const bio = isString(body && body.bio) ? body.bio.trim() : undefined;
+  const linkLabel = link && isString(link.label) ? link.label.trim() : undefined;
+  const linkUrl = link && isString(link.url) ? link.url.trim() : undefined;
+
+  if (!isString(body && body.displayName)) {
+    errors.displayName = "Display name must be a string.";
+  } else if (displayName.length < LIMITS.displayName.min || displayName.length > LIMITS.displayName.max) {
+    errors.displayName = `Display name must be ${LIMITS.displayName.min}-${LIMITS.displayName.max} characters.`;
+  }
+
+  if (!isString(body && body.bio)) {
+    errors.bio = "Bio must be a string.";
+  } else if (bio.length > LIMITS.bio.max) {
+    errors.bio = `Bio must be ${LIMITS.bio.max} characters or fewer.`;
+  }
+
+  if (!link || typeof link !== "object") {
+    errors.linkLabel = "Link label must be a string.";
+    errors.linkUrl = "Link URL must be a valid absolute https:// URL with a hostname.";
+  } else {
+    if (!isString(link.label)) {
+      errors.linkLabel = "Link label must be a string.";
+    } else if (linkLabel.length < LIMITS.linkLabel.min || linkLabel.length > LIMITS.linkLabel.max) {
+      errors.linkLabel = `Link label must be ${LIMITS.linkLabel.min}-${LIMITS.linkLabel.max} characters.`;
+    }
+
+    if (!isString(link.url)) {
+      errors.linkUrl = "Link URL must be a string.";
+    } else if (!isValidHttpsUrl(linkUrl)) {
+      errors.linkUrl = "Link URL must be a valid absolute https:// URL with a hostname.";
+    }
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return { ok: false, errors };
+  }
+  return { ok: true, value: { displayName, bio, link: { label: linkLabel, url: linkUrl } } };
+}
+
+function reportAudit(store, { actor, scope, feature, action, before, after, reason }) {
+  store.audit.push({
+    id: newId("audit"),
+    actor,
+    scope,
+    feature: feature || null,
+    action,
+    before,
+    after,
+    reason: reason || "",
+    time: new Date().toISOString(),
+  });
+}
+
+function getPage(store, pageId) {
+  return store.pages[pageId] || null;
+}
+
+function pageBySlug(store, slug) {
+  return Object.values(store.pages).find((p) => p.slug === slug) || null;
+}
+
+function ensurePageFeature(store, pageId, featureKey) {
+  const key = `${pageId}:${featureKey}`;
+  if (!store.pageFeatures[key]) {
+    store.pageFeatures[key] = {
+      pageId,
+      featureKey,
+      ownerEnabled: false,
+      draft: null,
+      published: null,
+      version: 1,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  return store.pageFeatures[key];
+}
+
+function featureCard(store, pageId, featureKey, now) {
+  const def = getFeature(featureKey);
+  const ev = evaluateFeature(store, pageId, featureKey, now);
+  const pf = store.pageFeatures[`${pageId}:${featureKey}`];
+  return {
+    key: def.key,
+    name: def.name,
+    category: def.category,
+    tier: def.tier,
+    parentKey: def.parentKey || null,
+    requiresConfig: def.requiresConfig,
+    requestedEnabled: ev.requestedEnabled,
+    effectiveEnabled: ev.effectiveEnabled,
+    reasonCode: ev.reasonCode,
+    canEdit: !!ev.canEdit,
+    configVersion: pf ? pf.version : null,
+    publishedAt: pf && pf.published ? pf.updatedAt : null,
+  };
+}
+
+function ownerPreview(store, pageId, now) {
+  const page = getPage(store, pageId);
+  if (!page) return null;
+  return {
+    profile: pageProfile(store, pageId),
+    features: allFeatures().map((f) => ({
+      ...featureCard(store, pageId, f.key, now),
+      draft: store.pageFeatures[`${pageId}:${f.key}`].draft,
+      published: store.pageFeatures[`${pageId}:${f.key}`].published,
+    })),
+    serverNow: now,
+    policyVersion: store.policyVersion,
+  };
+}
+
+function publicFeatures(store, page, now) {
+  const result = [];
+  for (const f of allFeatures()) {
+    const ev = evaluateFeature(store, page.id, f.key, now);
+    if (!ev.effectiveEnabled) continue;
+    result.push({ key: f.key, name: f.name, present: true });
+  }
+  return {
+    profile: pageProfile(store, page.id),
+    features: result,
+    serverNow: now,
+    policyVersion: store.policyVersion,
+  };
+}
+
+export function createApp() {
+  const app = express();
+  app.use(express.json());
+  app.use(authMiddleware);
+
+  const now = () => new Date().toISOString();
+
+  // ---------- auth ----------
+  app.post("/api/auth/login", (req, res) => {
+    const handle = req.body && typeof req.body.handle === "string" ? req.body.handle.trim().toLowerCase() : "";
+    const result = loginByHandle(handle);
+    if (!result) {
+      res.status(401).json({ message: "Unknown demo handle." });
+      return;
+    }
+    res.json({ token: result.token, user: publicUser(result.user) });
+  });
+
+  app.post("/api/auth/logout", requireAuth, (req, res) => {
+    const header = req.headers.authorization || "";
+    if (header.startsWith("Bearer ")) destroySession(header.slice(7));
+    res.json({ ok: true });
+  });
+
+  app.get("/api/me", requireAuth, (req, res) => {
+    const store = getStore();
+    res.json({ user: publicUser(req.user), pages: userPages(store, req.user) });
+  });
+
+  // ---------- shared ----------
+  function userPages(store, user) {
+    return Object.values(store.pages)
+      .filter((p) => isAdmin(user) || p.ownerId === user.id)
+      .map((p) => ({
+        id: p.id,
+        slug: p.slug,
+        ownerId: p.ownerId,
+        timezone: p.timezone,
+        profile: pageProfile(store, p.id),
+      }));
+  }
+
+  // ---------- owner ----------
+  app.get("/api/me/pages", requireAuth, (req, res) => {
+    const store = getStore();
+    res.json({ pages: userPages(store, req.user) });
+  });
+
+  app.get("/api/me/pages/:id/features", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    res.json({
+      pageId: page.id,
+      features: allFeatures().map((f) => featureCard(store, page.id, f.key, now())),
+    });
+  });
+
+  app.get("/api/me/pages/:id/features/:key", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const def = getFeature(req.params.key);
+    if (!def) return res.status(404).json({ message: "Unknown feature." });
+    const pf = ensurePageFeature(store, page.id, def.key);
+    res.json({
+      ...featureCard(store, page.id, def.key, now()),
+      config: { draft: pf.draft, published: pf.published },
+      version: pf.version,
+    });
+  });
+
+  app.patch("/api/me/pages/:id/features/:key", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const def = getFeature(req.params.key);
+    if (!def) return res.status(404).json({ message: "Unknown feature." });
+
+    const pf = ensurePageFeature(store, page.id, def.key);
+    const expectedVersion = req.body && req.body.expectedVersion;
+    if (expectedVersion !== undefined && expectedVersion !== pf.version) {
+      res.status(409).json({ message: "Stale edit. Reload the latest state and try again.", after: featureCard(store, page.id, def.key, now()) });
+      return;
+    }
+
+    const before = structuredClone(pf);
+    if (req.body && req.body.ownerEnabled !== undefined) {
+      if (typeof req.body.ownerEnabled !== "boolean") {
+        return res.status(422).json({ message: "ownerEnabled must be a boolean.", errors: { ownerEnabled: "must be a boolean" } });
+      }
+      pf.ownerEnabled = req.body.ownerEnabled;
+    }
+    if (req.body && req.body.config !== undefined) {
+      const result = validateConfig(def.key, req.body.config, pf.draft);
+      if (!result.ok) {
+        return res.status(422).json({ message: "Invalid feature configuration. Nothing was saved.", errors: result.errors });
+      }
+      pf.draft = result.value;
+    }
+    if (req.body && (req.body.ownerEnabled !== undefined || req.body.config !== undefined)) {
+      pf.version += 1;
+      pf.updatedAt = now();
+      reportAudit(store, {
+        actor: req.user.id,
+        scope: "page",
+        feature: def.key,
+        action: "owner.update",
+        before: { ownerEnabled: before.ownerEnabled, version: before.version },
+        after: { ownerEnabled: pf.ownerEnabled, version: pf.version },
+        reason: (req.body && req.body.reason) || "",
+      });
+      saveStore();
+    }
+    res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: "Saved. The switch is live policy; content stays a draft until published." });
+  });
+
+  app.post("/api/me/pages/:id/features/:key/publish", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const def = getFeature(req.params.key);
+    if (!def) return res.status(404).json({ message: "Unknown feature." });
+
+    const pf = ensurePageFeature(store, page.id, def.key);
+    const expectedVersion = req.body && req.body.expectedVersion;
+    if (expectedVersion !== undefined && expectedVersion !== pf.version) {
+      return res.status(409).json({ message: "Stale edit. Reload the latest state and try again." });
+    }
+    if (pf.draft == null) {
+      return res.status(400).json({ message: "Nothing to publish. Save a draft first." });
+    }
+    const result = validateConfig(def.key, pf.draft, pf.draft);
+    if (!result.ok) {
+      return res.status(422).json({ message: "Draft does not validate. Nothing was published.", errors: result.errors });
+    }
+    const before = structuredClone(pf);
+    pf.published = structuredClone(pf.draft);
+    pf.version += 1;
+    pf.updatedAt = now();
+    reportAudit(store, {
+      actor: req.user.id,
+      scope: "page",
+      feature: def.key,
+      action: "owner.publish",
+      before: { version: before.version },
+      after: { version: pf.version },
+      reason: (req.body && req.body.reason) || "",
+    });
+    saveStore();
+    res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: "Published. Drafts never enter public output; published state is now live content." });
+  });
+
+  app.patch("/api/me/pages/:id/profile", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const result = validateProfile(req.body);
+    if (!result.ok) {
+      return res.status(400).json({ message: "Invalid profile. Nothing was saved.", errors: result.errors });
+    }
+    const before = structuredClone(page.profile);
+    page.profile = result.value;
+    reportAudit(store, { actor: req.user.id, scope: "page", feature: "profile", action: "owner.update", before, after: structuredClone(page.profile), reason: "" });
+    saveStore();
+    res.json(pageProfile(store, page.id));
+  });
+
+  app.get("/api/me/pages/:id/preview", requireAuth, (req, res) => {
+    const store = getStore();
+    const page = getPage(store, req.params.id);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    if (!isOwnerOrAdmin(req.user, page)) return res.status(403).json({ message: "Not your page." });
+    const preview = ownerPreview(store, page.id, now());
+    res.setHeader("Cache-Control", "no-store");
+    res.json(preview);
+  });
+
+  // ---------- public ----------
+  app.get("/api/pages/:slug/features", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    res.json(publicFeatures(store, page, now()));
+  });
+
+  app.get("/api/pages/:slug", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    res.json(publicFeatures(store, page, now()));
+  });
+
+  // ---------- admin: feature catalogue ----------
+  app.get("/api/admin/features", requireRole("platform_admin"), (req, res) => {
+    const store = getStore();
+    const _now = now();
+    const rows = allFeatures().map((f) => {
+      const policy = store.features[f.key];
+      const active = evaluateFeatureCounts(store, f.key, _now);
+      const lastAudit = [...store.audit].reverse().find((a) => a.feature === f.key);
+      return {
+        key: f.key,
+        name: f.name,
+        category: f.category,
+        tier: f.tier,
+        parentKey: f.parentKey || null,
+        globalEnabled: policy.globalEnabled,
+        allowedPlans: [...policy.eligiblePlans],
+        defaultEnabled: policy.defaultEnabled,
+        rolloutPercent: policy.rolloutPercent,
+        enabledProfileCount: active.enabled,
+        configuredProfileCount: active.configured,
+        rolloutStatus: policy.rolloutPercent >= 100 ? "full" : "staged",
+        health: "ok",
+        lastChange: lastAudit ? { actor: lastAudit.actor, time: lastAudit.time, action: lastAudit.action } : null,
+        version: policy.version,
+      };
+    });
+    res.json({ policyVersion: store.policyVersion, rows });
+  });
+
+  app.get("/api/admin/features/:key", requireRole("platform_admin"), (req, res) => {
+    const store = getStore();
+    const def = getFeature(req.params.key);
+    if (!def) return res.status(404).json({ message: "Unknown feature." });
+    const policy = store.features[def.key];
+    const _now = now();
+    const counts = evaluateFeatureCounts(store, def.key, _now);
+    res.json({
+      key: def.key,
+      name: def.name,
+      description: def.description,
+      category: def.category,
+      tier: def.tier,
+      parentKey: def.parentKey || null,
+      fields: def.fields,
+      limits: def.limits,
+      policy: {
+        globalEnabled: policy.globalEnabled,
+        allowedPlans: [...policy.eligiblePlans],
+        defaultEnabled: policy.defaultEnabled,
+        rolloutPercent: policy.rolloutPercent,
+        version: policy.version,
+      },
+      activity: {
+        configuredProfiles: counts.configured,
+        enabledProfiles: counts.enabled,
+        pendingSubmissions: 0,
+        aggregateErrors: 0,
+      },
+      recentChanges: [...store.audit].reverse().filter((a) => a.feature === def.key).slice(0, 10),
+    });
+  });
+
+  app.patch("/api/admin/features/:key", requireRole("platform_admin"), (req, res) => {
+    const store = getStore();
+    const def = getFeature(req.params.key);
+    if (!def) return res.status(404).json({ message: "Unknown feature." });
+    const policy = store.features[def.key];
+    const body = req.body || {};
+    const before = structuredClone(policy);
+
+    if (body.globalEnabled !== undefined) {
+      if (typeof body.globalEnabled !== "boolean") return res.status(422).json({ message: "globalEnabled must be a boolean." });
+      policy.globalEnabled = body.globalEnabled;
+    }
+    if (body.allowedPlans !== undefined) {
+      if (!Array.isArray(body.allowedPlans) || body.allowedPlans.length === 0) {
+        return res.status(422).json({ message: "allowedPlans must be a non-empty array." });
+      }
+      for (const plan of body.allowedPlans) {
+        if (!["free", "lifetime"].includes(plan)) return res.status(422).json({ message: `Unknown plan: ${plan}` });
+      }
+      policy.eligiblePlans = [...new Set(body.allowedPlans)];
+    }
+    if (body.rolloutPercent !== undefined) {
+      if (typeof body.rolloutPercent !== "number" || body.rolloutPercent < 0 || body.rolloutPercent > 100) {
+        return res.status(422).json({ message: "rolloutPercent must be 0-100." });
+      }
+      policy.rolloutPercent = body.rolloutPercent;
+    }
+    if (body.defaultEnabled !== undefined) {
+      if (typeof body.defaultEnabled !== "boolean") return res.status(422).json({ message: "defaultEnabled must be a boolean." });
+      policy.defaultEnabled = body.defaultEnabled;
+    }
+    if (body.limits !== undefined && typeof body.limits === "object") {
+      policy.limits = { ...policy.limits, ...body.limits };
+    }
+
+    policy.version += 1;
+    store.policyVersion += 1;
+    policy.updatedAt = now();
+    reportAudit(store, {
+      actor: req.user.id,
+      scope: "policy",
+      feature: def.key,
+      action: "admin.policy",
+      before: { globalEnabled: before.globalEnabled, eligiblePlans: before.eligiblePlans, rolloutPercent: before.rolloutPercent },
+      after: { globalEnabled: policy.globalEnabled, eligiblePlans: policy.eligiblePlans, rolloutPercent: policy.rolloutPercent },
+      reason: (body.reason || "") + " (defaults retained; per-page config untouched)",
+    });
+    saveStore();
+    res.json({ key: def.key, policy, message: "Policy saved. Global off always wins and keeps saved content." });
+  });
+
+  function evaluateFeatureCounts(store, featureKey, _now) {
+    let configured = 0;
+    let enabled = 0;
+    for (const page of Object.values(store.pages)) {
+      const pf = store.pageFeatures[`${page.id}:${featureKey}`];
+      if (pf && pf.published) configured += 1;
+      if (evaluateFeature(store, page.id, featureKey, _now).effectiveEnabled) enabled += 1;
+    }
+    return { configured, enabled };
+  }
+
+  // ---------- admin: users ----------
+  app.get("/api/admin/users", requireRole("platform_admin"), (req, res) => {
+    const store = getStore();
+    const users = Object.values(store.users).map((u) => {
+      const pages = Object.values(store.pages).filter((p) => p.ownerId === u.id);
+      return {
+        id: u.id,
+        handle: u.handle,
+        role: u.role,
+        roleLabel: publicUser(u).roleLabel,
+        plan: u.plan,
+        suspended: u.suspended,
+        pageCount: pages.length,
+      };
+    });
+    res.json({ users });
+  });
+
+  app.get("/api/admin/users/:userId", requireRole("platform_admin"), (req, res) => {
+    const store = getStore();
+    const user = store.users[req.params.userId];
+    if (!user) return res.status(404).json({ message: "User not found." });
+    const _now = now();
+    const pages = Object.values(store.pages)
+      .filter((p) => p.ownerId === user.id)
+      .map((p) => ({
+        id: p.id,
+        slug: p.slug,
+        features: allFeatures().map((f) => {
+          const ev = evaluateFeature(store, p.id, f.key, _now);
+          return {
+            key: f.key,
+            name: f.name,
+            parentKey: f.parentKey || null,
+            requestedEnabled: ev.requestedEnabled,
+            effectiveEnabled: ev.effectiveEnabled,
+            reasonCode: ev.reasonCode,
+          };
+        }),
+      }));
+    res.json({ user: publicUser(user), suspended: user.suspended, pages, grants: store.grants.filter((g) => g.targetId === user.id) });
+  });
+
+  app.patch("/api/admin/users/:userId/features/:key/override", requireRole("platform_admin", "moderator"), (req, res) => {
+    const store = getStore();
+    const user = store.users[req.params.userId];
+    if (!user) return res.status(404).json({ message: "User not found." });
+    const def = getFeature(req.params.key);
+    if (!def) return res.status(404).json({ message: "Unknown feature." });
+    const body = req.body || {};
+    const kind = body.kind;
+    if (kind !== "grant" && kind !== "restrict") {
+      return res.status(422).json({ message: "kind must be 'grant' or 'restrict'." });
+    }
+    if (!body.reason || typeof body.reason !== "string" || body.reason.trim().length === 0) {
+      return res.status(422).json({ message: "A reason is required for overrides." });
+    }
+    let expiry = null;
+    if (body.expiry) {
+      const t = Date.parse(body.expiry);
+      if (Number.isNaN(t)) return res.status(422).json({ message: "expiry must be a valid ISO time." });
+      expiry = new Date(t).toISOString();
+    }
+    const grant = {
+      id: newId("grant"),
+      targetId: user.id,
+      targetKey: "user",
+      featureKey: def.key,
+      kind,
+      reason: body.reason.trim(),
+      expiry,
+      createdBy: req.user.id,
+      createdAt: now(),
+    };
+    store.grants.push(grant);
+    reportAudit(store, {
+      actor: req.user.id,
+      scope: "user",
+      feature: def.key,
+      action: kind === "grant" ? "admin.grant" : "admin.restrict",
+      before: {},
+      after: { target: user.id, kind, expiry },
+      reason: body.reason.trim(),
+    });
+    saveStore();
+    res.json({ grant, message: kind === "grant" ? "Entitlement grant applied." : "Restriction applied. It cannot bypass a hard global disable or suspension." });
+  });
+
+  // ---------- admin: audit ----------
+  app.get("/api/admin/audit", requireRole("platform_admin"), (req, res) => {
+    const store = getStore();
+    res.json({ audit: [...store.audit].reverse().slice(0, 200) });
+  });
+
+  // ---------- dev helper: reset demo data ----------
+  app.post("/api/dev/reset", (_req, res) => {
+    resetStore();
+    saveStore();
+    res.json({ ok: true });
+  });
+
+  app.use(express.static(path.join(__dirname, "..", "public")));
+
+  app.get("/p/:slug", (_req, res) => {
+    res.sendFile(path.join(__dirname, "..", "public", "page.html"));
+  });
+
+  app.use((err, _req, res, _next) => {
+    if (err instanceof SyntaxError && err.status === 400 && "body" in err) {
+      res.status(400).json({ message: "Malformed JSON in request body.", errors: {} });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ message: "Internal server error.", errors: {} });
+  });
+
+  return app;
+}
+
+export { REASONS };

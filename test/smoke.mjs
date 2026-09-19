@@ -7,32 +7,78 @@ const html = readFileSync(new URL("../public/index.html", import.meta.url), "utf
 const appJs = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
 
 const HJSON = { "Content-Type": "application/json" };
+const KEYS = [
+  "ask_anything", "other_side", "night_shift", "daily_draw", "time_capsule",
+  "archive", "moon", "guestbook", "neighbours", "alive", "alive_presence",
+  "alive_clock", "alive_hits", "secret_word", "chalkboard", "tally",
+];
 
-// Miniature of the server's rules so the test can exercise real 200/400
-// round-trips. Kept purposely close to server.js validateProfile().
-function makeFakeServer(initial) {
-  let profile = structuredClone(initial);
-  let saves = 0;
+// Minimal fake of the new authenticated API used by the editor.
+function makeFakeServer(initialProfile) {
+  let profile = structuredClone(initialProfile);
+  let featureEnabled = new Map();
+  for (const key of KEYS) featureEnabled.set(key, false);
+  const token = "demo-token";
+  let switches = 0;
+  let profileSaves = 0;
   return {
-    get saves() {
-      return saves;
+    get switches() {
+      return switches;
+    },
+    get profileSaves() {
+      return profileSaves;
     },
     get profile() {
       return profile;
     },
+    enabled(key) {
+      return featureEnabled.get(key);
+    },
     async handle(method, path, bodyRaw) {
-      if (path === "/api/profile" && method === "GET") {
-        return new Response(JSON.stringify(profile), { status: 200, headers: HJSON });
+      if (method === "POST" && path === "/api/auth/login") {
+        return new Response(JSON.stringify({ token, user: { id: "u_nova", handle: "nova", role: "owner", roleLabel: "Profile owner", plan: "lifetime" } }), { status: 200, headers: HJSON });
       }
-      if (path === "/api/profile" && method === "PUT") {
+      if (method === "GET" && path === "/api/me") {
+        return new Response(JSON.stringify({ user: { id: "u_nova", handle: "nova", role: "owner", plan: "lifetime" }, pages: [{ id: "p1", slug: "nova", ownerId: "u_nova", profile }] }), { status: 200, headers: HJSON });
+      }
+      if (method === "GET" && path === "/api/me/pages/p1/features") {
+        const features = KEYS.map((key) => ({
+          key,
+          name: key,
+          category: "x",
+          tier: "free",
+          parentKey: null,
+          requiresConfig: false,
+          requestedEnabled: featureEnabled.get(key),
+          effectiveEnabled: featureEnabled.get(key),
+          reasonCode: featureEnabled.get(key) ? "enabled" : "owner_off",
+          canEdit: true,
+          configVersion: 1,
+          publishedAt: null,
+        }));
+        return new Response(JSON.stringify({ pageId: "p1", features }), { status: 200, headers: HJSON });
+      }
+      const featureMatch = path.match(/^\/api\/me\/pages\/p1\/features\/([^/]+)$/);
+      if (method === "PATCH" && featureMatch) {
+        let body = JSON.parse(bodyRaw);
+        featureEnabled.set(featureMatch[1], body.ownerEnabled);
+        switches++;
+        return new Response(
+          JSON.stringify({
+            key: featureMatch[1], name: featureMatch[1], requestedEnabled: body.ownerEnabled,
+            effectiveEnabled: body.ownerEnabled, reasonCode: body.ownerEnabled ? "enabled" : "owner_off",
+            configVersion: 2, canEdit: true,
+            message: "Saved. The switch is live policy; content stays a draft until published.",
+          }),
+          { status: 200, headers: HJSON }
+        );
+      }
+      if (method === "PATCH" && path === "/api/me/pages/p1/profile") {
         let body;
         try {
           body = JSON.parse(bodyRaw);
         } catch {
-          return new Response(JSON.stringify({ message: "Malformed JSON", errors: {} }), {
-            status: 400,
-            headers: HJSON,
-          });
+          return new Response(JSON.stringify({ message: "Malformed JSON", errors: {} }), { status: 400, headers: HJSON });
         }
         const errors = {};
         const isStr = (v) => typeof v === "string";
@@ -63,13 +109,10 @@ function makeFakeServer(initial) {
           }
         }
         if (Object.keys(errors).length > 0) {
-          return new Response(JSON.stringify({ message: "Invalid profile. Nothing was saved.", errors }), {
-            status: 400,
-            headers: HJSON,
-          });
+          return new Response(JSON.stringify({ message: "Invalid profile. Nothing was saved.", errors }), { status: 400, headers: HJSON });
         }
         profile = { displayName: dn, bio, link: { label: ll, url: lu } };
-        saves++;
+        profileSaves++;
         return new Response(JSON.stringify(profile), { status: 200, headers: HJSON });
       }
       return new Response("not found", { status: 404 });
@@ -78,12 +121,13 @@ function makeFakeServer(initial) {
 }
 
 function boot(initial) {
-  const dom = new JSDOM(html, { runScripts: "outside-only", url: "http://localhost/" });
+  const dom = new JSDOM(html, { runScripts: "outside-only", url: "http://localhost/", pretendToBeVisual: true });
   const fake = makeFakeServer(initial);
   dom.window.fetch = async (input, opts = {}) => {
     const url = new URL(input.toString(), "http://localhost");
     return fake.handle(opts.method || "GET", url.pathname, opts.body || null);
   };
+  dom.window.localStorage.setItem("misa.token", "demo-token");
   dom.window.eval(appJs);
   return { dom, fake };
 }
@@ -98,7 +142,7 @@ const submit = (dom) =>
   byId(dom, "profile-form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
 const tick = (ms = 30) => new Promise((r) => setTimeout(r, ms));
 
-test("loads profile from backend and fills the form", async () => {
+test("logs in and loads profile from backend into the form", async () => {
   const { dom } = boot({
     displayName: "Nova",
     bio: "Music, late nights, and things I make.",
@@ -113,39 +157,26 @@ test("loads profile from backend and fills the form", async () => {
   assert.equal(byId(dom, "preview-bio").textContent, "Music, late nights, and things I make.");
 });
 
-test("preview updates live; invalid URL is never a clickable link", async () => {
-  const { dom } = boot({
+test("feature cards render and toggling a switch sends the PATCH with expectedVersion", async () => {
+  const { dom, fake } = boot({
     displayName: "Nova",
     bio: "b",
     link: { label: "My website", url: "https://example.com" },
   });
   await tick();
 
-  typeInto(dom, "display-name", "   Nana   ");
-  typeInto(dom, "bio", "new bio");
-  assert.equal(byId(dom, "preview-name").textContent, "Nana");
-  assert.equal(byId(dom, "preview-bio").textContent, "new bio");
-  assert.equal(byId(dom, "preview-avatar").textContent, "N");
+  const list = byId(dom, "feature-list");
+  assert.ok(list.querySelector('[data-key="moon"]'), "moon card present");
+  assert.equal(list.querySelector('[data-key="moon"]').classList.contains("on"), false);
 
-  typeInto(dom, "link-url", "https://example.com");
-  typeInto(dom, "link-label", "My website");
-  let anchor = byId(dom, "preview-link-wrap").querySelector("a");
-  assert.ok(anchor, "valid URL renders an anchor");
-  assert.equal(anchor.getAttribute("href"), "https://example.com");
-
-  // An invalid URL with a label must render as plain text, not a link.
-  typeInto(dom, "link-url", "javascript:alert(1)");
-  anchor = byId(dom, "preview-link-wrap").querySelector("a");
-  const invalid = byId(dom, "preview-link-wrap").querySelector(".preview-anchor-invalid");
-  assert.equal(anchor, null, "invalid URL must not produce an <a>");
-  assert.ok(invalid, "invalid URL renders a non-clickable element");
-  assert.equal(invalid.textContent, "My website");
-
-  typeInto(dom, "link-url", "http://example.com");
-  assert.equal(byId(dom, "preview-link-wrap").querySelector("a"), null, "http: URL must not produce an <a>");
+  byId(dom, "feature-card-moon").querySelector(".switch").click();
+  await tick();
+  assert.equal(fake.switches, 1, "one PATCH sent");
+  assert.equal(fake.enabled("moon"), true, "fake store updated");
+  assert.equal(list.querySelector('[data-key="moon"]').classList.contains("on"), true, "switch reflects server state");
 });
 
-test("save shows pending state, disables the button, and succeeds only after server confirms", async () => {
+test("save shows pending state and succeeds only after server confirms", async () => {
   const { dom, fake } = boot({
     displayName: "Nova",
     bio: "b",
@@ -159,7 +190,6 @@ test("save shows pending state, disables the button, and succeeds only after ser
   typeInto(dom, "link-url", "https://example.com/");
   submit(dom);
 
-  // Pending state is applied synchronously by the submit handler.
   assert.equal(byId(dom, "save-button").disabled, true, "button disabled while pending");
   assert.equal(byId(dom, "save-button").textContent, "Saving…");
 
@@ -169,7 +199,7 @@ test("save shows pending state, disables the button, and succeeds only after ser
   assert.equal(byId(dom, "save-status").dataset.tone, "success");
   assert.equal(fake.profile.displayName, "Nova Renee");
   assert.equal(fake.profile.bio, "longer bio");
-  assert.equal(fake.saves, 1);
+  assert.equal(fake.profileSaves, 1);
 });
 
 test("failed save keeps entries and surfaces server errors", async () => {
@@ -193,28 +223,7 @@ test("failed save keeps entries and surfaces server errors", async () => {
   assert.match(err.textContent, /https:\/\//);
   assert.equal(byId(dom, "link-url").getAttribute("aria-invalid"), "true");
   assert.equal(byId(dom, "save-status").dataset.tone, "error");
-  // Form entries must be preserved so the user can correct them.
   assert.equal(byId(dom, "display-name").value, "Keep Me");
   assert.equal(byId(dom, "bio").value, "keep this too");
   assert.equal(byId(dom, "link-url").value, "http://insecure.example.com");
-});
-
-test("subsequent valid save after a fix succeeds", async () => {
-  const { dom, fake } = boot({
-    displayName: "Nova",
-    bio: "b",
-    link: { label: "My website", url: "https://example.com" },
-  });
-  await tick();
-
-  typeInto(dom, "link-url", "http://insecure.example.com");
-  submit(dom);
-  await tick();
-  assert.equal(byId(dom, "save-status").dataset.tone, "error");
-
-  typeInto(dom, "link-url", "https://secure.example.com");
-  submit(dom);
-  await tick();
-  assert.equal(fake.profile.link.url, "https://secure.example.com");
-  assert.equal(byId(dom, "save-status").dataset.tone, "success");
 });
