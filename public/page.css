@@ -539,3 +539,23 @@ h2.h2 {
 .alive-hits.style-odometer .alive-value {
   font-family: "Courier New", monospace;
 }
+
+/* secret word */
+#secret-form {
+  display: flex;
+  gap: 8px;
+}
+
+#secret-form input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.secret-reveal a {
+  display: inline-block;
+  margin-top: 8px;
+  font-weight: 600;
+}

@@ -28,10 +28,11 @@ function redactConfig(key, cfg) {
     clone.body = "";
     clone.redacted = true;
   }
-  if (key === "secret_word") {
-    if (clone.phrase) clone.phrase = "";
-    clone.redacted = true;
-  }
+    if (key === "secret_word") {
+      clone.phrase = "";
+      clone.url = "";
+      clone.redacted = true;
+    }
   return clone;
 }
 
@@ -139,11 +140,14 @@ function applySnapshot(store, page, content) {
   page.profile = structuredClone(content.profile);
   if (content.placements) store.placements[page.id] = structuredClone(content.placements);
   else delete store.placements[page.id];
-  for (const f of allFeatures()) {
-    const src = content.features[f.key];
-    const pf = store.pageFeatures[`${page.id}:${f.key}`];
-    if (!pf || !src) continue;
-    pf.ownerEnabled = !!src.ownerEnabled;
+    for (const f of allFeatures()) {
+      const src = content.features[f.key];
+      const pf = store.pageFeatures[`${page.id}:${f.key}`];
+      if (!pf || !src) continue;
+      // Secret material is never captured, so it is never restored from a
+      // snapshot either; the live verifier and destination stay untouched.
+      if (f.key === "secret_word") continue;
+      pf.ownerEnabled = !!src.ownerEnabled;
     pf.published = src.published ? structuredClone(src.published) : null;
     pf.draft = null;
     pf.version += 1;

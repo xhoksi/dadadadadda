@@ -19,7 +19,7 @@ const LIMITS = {
   neighbours: { slotsMax: 5 },
   chalkboard: { strokesMax: 100, pointsMax: 10000, payloadKB: 100, pendingMax: 100, keptMax: 50, pinnedMax: 3 },
   tally: { questionMax: 200, optionMax: 80, optionsMin: 2, optionsMax: 4 },
-  secret_word: { phraseMin: 4, phraseMax: 64, labelMax: 80, urlMax: 2048 },
+  secret_word: { phraseMin: 4, phraseMax: 64, labelMax: 80, urlMax: 2048, attemptWindowMs: 600000, attemptMax: 10 },
 };
 
 function field({ type, default: def, required = false, min, max, values, items, maxItems, pattern }) {
@@ -206,6 +206,7 @@ export const FEATURES = [
       phrase: field({ type: "string", default: "", pattern: "^.{4,64}$" }),
       url: field({ type: "string", default: "" }),
       label: field({ type: "string", default: "", max: 80 }),
+      placement: field({ type: "enum", default: "card", values: ["card", "footer"] }),
     },
   },
   {

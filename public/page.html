@@ -84,6 +84,15 @@
           </div>
         </div>
       </section>
+      <section class="m-card secret-card" id="secret-card" aria-label="Secret word" hidden>
+        <h2 class="h2">Got a word?</h2>
+        <form id="secret-form">
+          <input id="secret-input" type="text" maxlength="64" autocomplete="off" placeholder="Enter a word" aria-label="Enter a word" />
+          <button type="submit" id="secret-submit">Enter</button>
+        </form>
+        <p id="secret-status" class="ask-status" hidden></p>
+        <div id="secret-reveal" class="secret-reveal" hidden></div>
+      </section>
       <section class="m-card" id="ask-anything" aria-label="Ask me anything" hidden>
         <h2 class="h2">Ask me anything</h2>
         <p id="ask-prompt" class="ask-prompt"></p>

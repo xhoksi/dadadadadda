@@ -27,6 +27,7 @@ import * as moon from "./content/moon.js";
 import * as guestbook from "./content/guestbook.js";
 import * as neighbours from "./content/neighbours.js";
 import * as alive from "./content/alive.js";
+import * as secret from "./content/secret_word.js";
 import { flipCard, pageBlocks, setPlacements, nightState, nightOnlyBlocks } from "./content/blocks.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -189,6 +190,7 @@ function publicFeatures(store, page, now) {
     guestbook: guestbook.publicView(store, page, now),
     neighbours: neighbours.publicView(store, page, now),
     alive: alive.publicView(store, page, now),
+    secret_word: secret.publicView(store, page, now),
     serverNow: now,
     policyVersion: store.policyVersion,
   };
@@ -293,11 +295,36 @@ export function createApp() {
       pf.ownerEnabled = req.body.ownerEnabled;
     }
     if (req.body && req.body.config !== undefined) {
-      const result = validateConfig(def.key, req.body.config, pf.draft);
+      let incoming = req.body.config;
+      let phrase;
+      if (def.key === "secret_word" && incoming && typeof incoming === "object" && !Array.isArray(incoming) && Object.prototype.hasOwnProperty.call(incoming, "phrase")) {
+        phrase = incoming.phrase;
+        incoming = { ...incoming };
+        delete incoming.phrase;
+      }
+      const result = validateConfig(def.key, incoming, pf.draft);
       if (!result.ok) {
         return res.status(422).json({ message: "Invalid feature configuration. Nothing was saved.", errors: result.errors });
       }
+      if (def.key === "secret_word" && result.value.url && !secret.safeDestination(result.value.url)) {
+        return res.status(422).json({ message: "Invalid feature configuration. Nothing was saved.", errors: { url: "Only http and https destinations are allowed." } });
+      }
+      const previousUrl = (pf.published && pf.published.url) || (pf.draft && pf.draft.url) || "";
       pf.draft = result.value;
+      if (def.key === "secret_word") {
+        if (phrase !== undefined) {
+          if (String(phrase).trim() === "") {
+            secret.clearSecret(store, page);
+          } else {
+            const set = secret.setSecret(store, page, phrase, now());
+            if (!set.ok) return res.status(set.status).json(set);
+          }
+        }
+        if ((pf.draft.url || "") !== previousUrl) {
+          pf.secretVersion = (pf.secretVersion || 0) + 1;
+          secret.revokeGrants(store, page.id);
+        }
+      }
     }
     if (req.body && (req.body.ownerEnabled !== undefined || req.body.config !== undefined)) {
       pf.version += 1;
@@ -363,6 +390,18 @@ export function createApp() {
       archive.capture(store, page, req.user.id, now(), `publish ${def.key}`);
       saveStore();
       return res.json({ ...featureCard(store, page.id, def.key, now()), version: pf.version, message: drew.message });
+    }
+    if (def.key === "secret_word") {
+      if (!secret.hasSecret(store, page.id)) {
+        return res.status(422).json({ message: "Set a secret word before publishing.", errors: { phrase: "A secret word is required." } });
+      }
+      if (!secret.safeDestination(result.value.url)) {
+        return res.status(422).json({ message: "Only http and https destinations are allowed.", errors: { url: "Only http and https destinations are allowed." } });
+      }
+      if (((pf.published && pf.published.url) || "") !== (result.value.url || "")) {
+        pf.secretVersion = (pf.secretVersion || 0) + 1;
+        secret.revokeGrants(store, page.id);
+      }
     }
     pf.published = structuredClone(pf.draft);
     pf.version += 1;
@@ -832,6 +871,32 @@ export function createApp() {
     res.json(result);
   });
 
+  // ---------- public: secret word ----------
+  app.post("/api/pages/:slug/secret", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    const result = secret.attemptUnlock(store, page, req.body && req.body.phrase, ip, now());
+    res.setHeader("Cache-Control", "no-store");
+    if (!result.ok) {
+      if (result.retryAfterSec) res.setHeader("Retry-After", String(result.retryAfterSec));
+      return res.status(result.status).json(result);
+    }
+    saveStore();
+    res.json(result);
+  });
+
+  app.get("/api/pages/:slug/secret/grant/:grantId", (req, res) => {
+    const store = getStore();
+    const page = pageBySlug(store, req.params.slug);
+    if (!page) return res.status(404).json({ message: "Page not found." });
+    const resolved = secret.resolveGrant(store, page, req.params.grantId, now());
+    if (!resolved) return res.status(410).json({ message: "This unlock has expired. Enter the word again." });
+    res.setHeader("Cache-Control", "no-store");
+    res.json(resolved);
+  });
+
   // ---------- public: time capsule ----------
   app.get("/api/pages/:slug/capsule", (req, res) => {
     const store = getStore();
@@ -1122,6 +1187,7 @@ export function createApp() {
   app.post("/api/dev/reset", (_req, res) => {
     ask.resetIntakeRate();
     guestbook.resetIntakeRate();
+    secret.resetAttempts();
     resetStore();
     saveStore();
     res.json({ ok: true });

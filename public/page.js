@@ -38,6 +38,11 @@ const el = {
   aliveClockLabel: document.getElementById("alive-clock-label"),
   aliveHits: document.getElementById("alive-hits"),
   aliveHitsCount: document.getElementById("alive-hits-count"),
+  secretCard: document.getElementById("secret-card"),
+  secretForm: document.getElementById("secret-form"),
+  secretInput: document.getElementById("secret-input"),
+  secretStatus: document.getElementById("secret-status"),
+  secretReveal: document.getElementById("secret-reveal"),
 };
 
 const faces = {
@@ -487,6 +492,100 @@ function renderAlive(data) {
   }
 }
 
+function isEditable(target) {
+  if (!target) return false;
+  const tag = (target.tagName || "").toUpperCase();
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (target.isContentEditable) return true;
+  return false;
+}
+
+let secretBuffer = "";
+let secretDebounce = null;
+
+function revealSecret(data) {
+  el.secretReveal.textContent = "";
+  const a = document.createElement("a");
+  a.className = "m-link";
+  a.textContent = data.label || "A hidden link";
+  a.href = data.url;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  el.secretReveal.appendChild(a);
+  el.secretReveal.hidden = false;
+  el.secretStatus.hidden = true;
+  el.secretForm.hidden = true;
+}
+
+function setSecretStatus(text) {
+  el.secretStatus.textContent = text;
+  el.secretStatus.hidden = !text;
+}
+
+async function attemptSecret(phrase) {
+  if (!phrase || !String(phrase).trim()) return;
+  try {
+    const res = await fetch(`/api/pages/${encodeURIComponent(slug)}/secret`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phrase }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setSecretStatus(data.message || "That word doesn't match.");
+      return;
+    }
+    revealSecret(data);
+  } catch {
+    setSecretStatus("Could not reach the server. Try again later.");
+  }
+}
+
+function secretKeydown(e) {
+  if (el.secretCard.hidden) return;
+  if (e.isComposing) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isEditable(e.target)) return;
+  if (e.key === "Backspace") {
+    secretBuffer = secretBuffer.slice(0, -1);
+    return;
+  }
+  // Only printable single characters enter the transient buffer.
+  if (typeof e.key !== "string" || e.key.length !== 1) return;
+  secretBuffer = (secretBuffer + e.key).slice(-64);
+  clearTimeout(secretDebounce);
+  secretDebounce = setTimeout(() => {
+    const phrase = secretBuffer;
+    secretBuffer = "";
+    attemptSecret(phrase);
+  }, 800);
+}
+
+function renderSecret(data) {
+  document.removeEventListener("keydown", secretKeydown);
+  secretBuffer = "";
+  clearTimeout(secretDebounce);
+  const s = data.secret_word;
+  if (!s) {
+    el.secretCard.hidden = true;
+    return;
+  }
+  el.secretCard.hidden = false;
+  el.secretCard.className = `m-card secret-card placement-${s.placement || "card"}`;
+  el.secretForm.hidden = false;
+  el.secretReveal.hidden = true;
+  el.secretReveal.textContent = "";
+  el.secretStatus.hidden = true;
+  document.addEventListener("keydown", secretKeydown);
+}
+
+el.secretForm.addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const phrase = el.secretInput.value;
+  el.secretInput.value = "";
+  attemptSecret(phrase);
+});
+
 async function load() {
   try {
     const res = await fetch(`/api/pages/${encodeURIComponent(slug)}`, { headers: { Accept: "application/json" } });
@@ -564,6 +663,7 @@ async function load() {
     renderNeighbours(data);
     renderGuestbook(data);
     renderAlive(data);
+    renderSecret(data);
 
     if (data.features.some((f) => f.key === "ask_anything")) {
       loadAsk();
